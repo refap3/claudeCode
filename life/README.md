@@ -86,14 +86,16 @@ While the simulation is running:
 - **R**: Reset to initial state
 - **C**: Clear the grid
 - **+/-**: Increase/decrease speed
-- **1-7**: Load patterns by number:
+- **1-9**: Load patterns by number:
   1. acorn
   2. diehard
   3. glider
   4. gosper_glider_gun
   5. lwss
   6. pulsar
-  7. r_pentomino
+  7. queen_bee_shuttle
+  8. r_pentomino
+  9. switch_engine
 - **Q** or **ESC**: Quit
 
 ## Available Patterns
@@ -107,6 +109,10 @@ While the simulation is running:
 
 ### Oscillators (Repeating Patterns)
 - **pulsar**: Beautiful 3-period oscillator
+- **queen_bee_shuttle**: Period 30 oscillator with gliders bouncing between two sides
+
+### Infinite Growth
+- **switch_engine**: Creates infinite growth - keeps expanding forever!
 
 ### Methuselahs (Long-Lived Evolvers)
 - **r_pentomino**: Stabilizes after 1103 generations

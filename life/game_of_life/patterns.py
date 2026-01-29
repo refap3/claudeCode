@@ -61,6 +61,28 @@ PATTERNS = {
         (1, 3),
         (2, 0), (2, 1), (2, 4), (2, 5), (2, 6)
     ],
+    'switch_engine': [  # Creates infinite growth - watch it expand forever!
+        (0, 3),
+        (1, 5),
+        (2, 0), (2, 4),
+        (3, 1), (3, 2), (3, 3), (3, 4)
+    ],
+    'queen_bee_shuttle': [  # Period 30 oscillator with bouncing gliders
+        # Left queen bee
+        (0, 9),
+        (1, 7), (1, 9),
+        (2, 5), (2, 7), (2, 8),
+        # Right blocks
+        (0, 17), (0, 18),
+        (1, 17),
+        # Bottom queen bee (mirrored)
+        (5, 5), (5, 7), (5, 8),
+        (6, 7), (6, 9),
+        (7, 9),
+        # Bottom right blocks
+        (6, 17),
+        (7, 17), (7, 18)
+    ],
 }
 
 
