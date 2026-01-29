@@ -60,7 +60,7 @@ class TerminalRenderer:
 
         # Controls footer
         lines.append("Controls:")
-        lines.append("  [SPACE] Pause/Play  [N] Next (when paused)  [R] Reset  [C] Clear")
+        lines.append("  [SPACE] Pause/Play  [N] Next (when paused)  [R] Reset  [C] Clear  [X] Random")
         lines.append("  [+/-] Speed  [1-9] Load pattern  [Q/ESC] Quit")
 
         # Print entire frame at once
