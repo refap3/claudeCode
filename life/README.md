@@ -85,6 +85,7 @@ While the simulation is running:
 - **N**: Step to next generation (when paused)
 - **R**: Reset to initial state
 - **C**: Clear the grid
+- **X**: Randomize the grid with random cells
 - **+/-**: Increase/decrease speed
 - **1-9**: Load patterns by number:
   1. acorn

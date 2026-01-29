@@ -115,6 +115,11 @@ def main():
                         # Clear grid
                         grid.clear()
                         generation = 0
+                    elif key_lower == 'x':
+                        # Randomize grid
+                        grid.randomize(args.density)
+                        initial_grid = grid.copy()
+                        generation = 0
                     elif key_lower == 'n' and paused:
                         # Step one generation when paused
                         grid.step()
