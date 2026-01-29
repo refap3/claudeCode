@@ -30,7 +30,7 @@ pip install numpy
 
 ### Basic Usage
 
-Run with default settings (80x50 grid, glider pattern):
+Run with default settings (200x60 grid, gosper_glider_gun pattern):
 
 ```bash
 python main.py
@@ -42,8 +42,8 @@ python main.py
 python main.py [OPTIONS]
 
 Options:
-  -w, --width WIDTH        Grid width (default: 80)
-  -H, --height HEIGHT      Grid height (default: 50)
+  -w, --width WIDTH        Grid width (default: 200)
+  -H, --height HEIGHT      Grid height (default: 60)
   --fps FPS                Frames per second (default: 10)
   -p, --pattern PATTERN    Initial pattern name
   -r, --random             Random initialization
@@ -86,16 +86,14 @@ While the simulation is running:
 - **R**: Reset to initial state
 - **C**: Clear the grid
 - **+/-**: Increase/decrease speed
-- **1-9**: Load patterns by number:
+- **1-7**: Load patterns by number:
   1. acorn
   2. diehard
   3. glider
   4. gosper_glider_gun
-  5. hwss
-  6. lwss
-  7. mwss
-  8. pentadecathlon
-  9. pulsar
+  5. lwss
+  6. pulsar
+  7. r_pentomino
 - **Q** or **ESC**: Quit
 
 ## Available Patterns
@@ -103,16 +101,12 @@ While the simulation is running:
 ### Spaceships (Moving Patterns)
 - **glider**: Small spaceship that moves diagonally
 - **lwss**: Lightweight spaceship (moves horizontally)
-- **mwss**: Middleweight spaceship (faster than lwss)
-- **hwss**: Heavyweight spaceship (fastest standard spaceship)
 
 ### Glider Guns (Pattern Generators)
 - **gosper_glider_gun**: Classic Gosper glider gun (creates gliders infinitely)
-- **simkin_glider_gun**: Smaller, more compact glider gun
 
 ### Oscillators (Repeating Patterns)
 - **pulsar**: Beautiful 3-period oscillator
-- **pentadecathlon**: 15-period oscillator
 
 ### Methuselahs (Long-Lived Evolvers)
 - **r_pentomino**: Stabilizes after 1103 generations
@@ -141,7 +135,7 @@ Despite these simple rules, the Game of Life exhibits complex emergent behavior 
 
 The implementation uses NumPy for vectorized operations, providing excellent performance:
 
-- 80x50 grid (default): 25+ FPS
+- 200x60 grid (default): 20+ FPS
 - 100x100 grid: 20+ FPS
 - 200x200 grid: 10+ FPS
 

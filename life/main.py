@@ -17,14 +17,14 @@ def parse_args():
     parser.add_argument(
         '-w', '--width',
         type=int,
-        default=80,
-        help='Grid width (default: 80)'
+        default=200,
+        help='Grid width (default: 200)'
     )
     parser.add_argument(
         '-H', '--height',
         type=int,
-        default=50,
-        help='Grid height (default: 50)'
+        default=60,
+        help='Grid height (default: 60)'
     )
     parser.add_argument(
         '--fps',
@@ -77,10 +77,10 @@ def main():
         grid.randomize(args.density)
         initial_grid = grid.copy()
     else:
-        # Default: place a glider
+        # Default: place a gosper glider gun
         center_x = args.width // 2
         center_y = args.height // 2
-        grid.place_pattern(get_pattern('glider'), center_x, center_y)
+        grid.place_pattern(get_pattern('gosper_glider_gun'), center_x, center_y)
         initial_grid = grid.copy()
 
     # Game state
