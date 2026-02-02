@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Terminal Racing Game - Top-down arcade racer
+Terminal Racing Game - First-person arcade racer
 Controls: Arrow keys to drive, Space to pause
 """
 
@@ -98,6 +98,201 @@ class Track:
                     pass
 
 
+class FirstPersonRenderer:
+    """Renders the racing game from a first-person perspective"""
+
+    def __init__(self):
+        # Rendering parameters
+        self.min_distance = 5.0
+        self.max_distance = 100.0
+        self.num_slices = 30  # Number of horizontal scan lines
+        self.track_width_scale = 3.0  # Scale factor for track width visibility
+
+        # Visual characters
+        self.road_char = '='
+        self.wall_char = '█'
+        self.edge_char = '|'
+
+    def calculate_future_position(self, car: Car, distance: float) -> Tuple[float, float]:
+        """Calculate position ahead of car at given distance"""
+        future_x = car.x + math.cos(car.angle) * distance
+        future_y = car.y + math.sin(car.angle) * distance
+        return future_x, future_y
+
+    def find_track_boundaries(self, track: Track, center_x: float, center_y: float,
+                            perpendicular_angle: float, max_search: float = 50.0) -> Tuple[float, float]:
+        """Find left and right track boundaries at a given point
+
+        For oval tracks, calculate actual track width based on geometry
+        rather than ray-tracing from potentially off-center positions.
+        """
+        # Calculate track width at this position based on track geometry
+        # The oval track has constant width: (outer_radius - inner_radius)
+        dx = center_x - track.center_x
+        dy = center_y - track.center_y
+
+        # Calculate angle from track center to this position
+        angle_to_pos = math.atan2(dy, dx)
+
+        # Calculate distances from track center to inner and outer boundaries at this angle
+        # Using ellipse formula: r(θ) for an ellipse
+        outer_dist = math.sqrt(
+            (track.outer_radius_x * math.cos(angle_to_pos)) ** 2 +
+            (track.outer_radius_y * math.sin(angle_to_pos)) ** 2
+        )
+        inner_dist = math.sqrt(
+            (track.inner_radius_x * math.cos(angle_to_pos)) ** 2 +
+            (track.inner_radius_y * math.sin(angle_to_pos)) ** 2
+        )
+
+        # Track width at this angle
+        track_width = outer_dist - inner_dist
+
+        # Distance from center of position to each edge (symmetric)
+        half_width = track_width / 2.0
+
+        return half_width, half_width
+
+    def calculate_lateral_offset(self, track: Track, car: Car, future_x: float, future_y: float) -> float:
+        """Calculate how much the track curves left/right at future position"""
+        # Find the angle to track center from future position
+        to_center_x = track.center_x - future_x
+        to_center_y = track.center_y - future_y
+
+        # Calculate angle difference
+        track_center_angle = math.atan2(to_center_y, to_center_x)
+        angle_diff = track_center_angle - car.angle
+
+        # Normalize to -pi to pi
+        while angle_diff > math.pi:
+            angle_diff -= 2 * math.pi
+        while angle_diff < -math.pi:
+            angle_diff += 2 * math.pi
+
+        # The lateral offset is the perpendicular component
+        return math.sin(angle_diff) * 15.0
+
+    def render_track_slice(self, win, screen_y: int, screen_width: int,
+                          left_wall_x: int, right_wall_x: int,
+                          is_on_track: bool, is_finish_line: bool = False):
+        """Render a single horizontal slice of the track"""
+        if screen_y < 0 or screen_y >= curses.LINES - 5:
+            return
+
+        try:
+            # Choose colors
+            wall_color = curses.color_pair(1)
+            road_color = curses.color_pair(4) if is_on_track else curses.color_pair(5)
+            finish_color = curses.color_pair(3)
+
+            # Clamp boundaries to screen
+            left_wall_x = max(0, min(screen_width - 1, left_wall_x))
+            right_wall_x = max(0, min(screen_width - 1, right_wall_x))
+
+            # Ensure left is actually left of right
+            if left_wall_x > right_wall_x:
+                left_wall_x, right_wall_x = right_wall_x, left_wall_x
+
+            # Draw the slice
+            for x in range(screen_width):
+                if x < left_wall_x:
+                    # Left off-road
+                    win.addch(screen_y, x, ' ')
+                elif x == left_wall_x:
+                    # Left wall
+                    win.addch(screen_y, x, self.edge_char, wall_color)
+                elif x < right_wall_x:
+                    # Track surface
+                    if is_finish_line and screen_y % 2 == 0:
+                        win.addch(screen_y, x, '|', finish_color)
+                    else:
+                        win.addch(screen_y, x, self.road_char, road_color)
+                elif x == right_wall_x:
+                    # Right wall
+                    win.addch(screen_y, x, self.edge_char, wall_color)
+                else:
+                    # Right off-road
+                    win.addch(screen_y, x, ' ')
+        except curses.error:
+            pass
+
+    def render_view(self, win, car: Car, track: Track, screen_width: int, screen_height: int):
+        """Render the first-person view of the track"""
+        view_height = screen_height - 10  # Leave room for dashboard and HUD
+
+        # Render each horizontal slice from top (far) to bottom (near)
+        for row in range(view_height):
+            # Calculate distance for this row (top = far, bottom = near)
+            t = row / view_height  # 0 at top, 1 at bottom
+            distance = self.min_distance + (self.max_distance - self.min_distance) * (1 - t)
+
+            # Calculate future position at this distance
+            future_x, future_y = self.calculate_future_position(car, distance)
+
+            # Check if this position is on the track
+            on_track_at_distance = track.is_on_track(future_x, future_y)
+
+            # Calculate track boundaries at this distance
+            left_dist, right_dist = self.find_track_boundaries(track, future_x, future_y, car.angle)
+
+            # Apply perspective scaling (things get wider as they get closer)
+            perspective_scale = self.min_distance / distance
+
+            # Calculate lateral offset (track curving left/right)
+            lateral_offset = self.calculate_lateral_offset(track, car, future_x, future_y)
+            lateral_offset_pixels = int(lateral_offset * perspective_scale)
+
+            # Calculate screen positions for track edges
+            center_x = screen_width // 2 + lateral_offset_pixels
+            left_wall_screen = int(center_x - left_dist * perspective_scale * self.track_width_scale)
+            right_wall_screen = int(center_x + right_dist * perspective_scale * self.track_width_scale)
+
+            # Check if this is near the finish line
+            is_finish = abs(future_x - track.start_x) < 3 and abs(future_y - track.start_y) < 3
+
+            # Render this slice
+            self.render_track_slice(win, row, screen_width, left_wall_screen, right_wall_screen,
+                                   on_track_at_distance, is_finish)
+
+    def render_dashboard(self, win, screen_width: int, screen_height: int, car: Car):
+        """Render car dashboard/cockpit at bottom of screen"""
+        dashboard_y = screen_height - 8
+
+        # Car hood/cockpit design - more visible
+        hood_width = min(60, screen_width - 4)
+
+        # Create the hood lines
+        dashboard = []
+
+        # Top of hood (narrow, far from driver)
+        top_width = hood_width // 3
+        top_line = " " * ((screen_width - top_width) // 2) + "█" * top_width
+        dashboard.append(top_line)
+
+        # Hood getting wider
+        for i in range(1, 4):
+            width = top_width + (hood_width - top_width) * i // 3
+            line = " " * ((screen_width - width) // 2) + "▓" * width
+            dashboard.append(line)
+
+        # Dashboard/windshield frame
+        frame_width = min(hood_width + 20, screen_width - 2)
+        left_margin = (screen_width - frame_width) // 2
+
+        # Instrument cluster
+        speed_display = f"[SPD:{car.speed:.1f}]"
+        dashboard.append(" " * left_margin + "╔" + "═" * (frame_width - 2) + "╗")
+        dashboard.append(" " * left_margin + "║" + speed_display.center(frame_width - 2) + "║")
+
+        try:
+            for i, line in enumerate(dashboard):
+                y = dashboard_y + i
+                if y < screen_height - 3:
+                    win.addstr(y, 0, line[:screen_width], curses.color_pair(2) | curses.A_BOLD)
+        except curses.error:
+            pass
+
+
 class Game:
     """Main game controller"""
 
@@ -115,6 +310,7 @@ class Game:
 
         # Game objects
         self.track = Track(self.width, self.height - 5)
+        self.renderer = FirstPersonRenderer()
 
         # Start car on the right side of the track, between inner and outer boundaries
         track_width = (self.track.outer_radius_x - self.track.inner_radius_x) / 2
@@ -253,91 +449,46 @@ class Game:
             pass
 
     def draw(self):
-        """Render everything"""
+        """Render everything in first-person view"""
         self.stdscr.clear()
 
-        # Draw track
-        self.track.draw(self.stdscr)
+        # Render first-person view of the track
+        self.renderer.render_view(self.stdscr, self.car, self.track, self.width, self.height)
 
-        # Draw car (simple representation)
-        car_x = int(self.car.x)
-        car_y = int(self.car.y)
-
-        if 0 <= car_y < self.height - 1 and 0 <= car_x < self.width:
-            # Draw car body (red if off-track, cyan if on-track)
-            try:
-                car_color = curses.color_pair(5) if self.off_track else curses.color_pair(2)
-                self.stdscr.addch(car_y, car_x, 'O', car_color | curses.A_BOLD)
-
-                # Draw direction indicator with better visibility
-                front_x = int(car_x + math.cos(self.car.angle) * 2)
-                front_y = int(car_y + math.sin(self.car.angle) * 2)
-                if 0 <= front_y < self.height - 1 and 0 <= front_x < self.width:
-                    # Choose direction arrow based on angle
-                    angle_deg = (math.degrees(self.car.angle) % 360)
-                    if 45 <= angle_deg < 135:
-                        arrow = 'v'
-                    elif 135 <= angle_deg < 225:
-                        arrow = '<'
-                    elif 225 <= angle_deg < 315:
-                        arrow = '^'
-                    else:
-                        arrow = '>'
-                    self.stdscr.addch(front_y, front_x, arrow, curses.color_pair(2) | curses.A_BOLD)
-            except curses.error:
-                pass
+        # Render car dashboard at bottom
+        self.renderer.render_dashboard(self.stdscr, self.width, self.height, self.car)
 
         # Draw HUD
-        hud_y = self.height - 4
+        hud_y = self.height - 3
         try:
-            self.stdscr.addstr(hud_y, 2, f"Time: {self.race_time:.2f}s", curses.color_pair(4))
-            self.stdscr.addstr(hud_y + 1, 2, f"Laps: {self.laps_completed}", curses.color_pair(4))
-            self.stdscr.addstr(hud_y, self.width - 30, f"Speed: {self.car.speed:.2f}", curses.color_pair(4))
+            # Main stats
+            self.stdscr.addstr(hud_y, 2, f"Speed: {self.car.speed:.1f}", curses.color_pair(4))
+            self.stdscr.addstr(hud_y, 20, f"Time: {self.race_time:.2f}s", curses.color_pair(4))
+            self.stdscr.addstr(hud_y, 40, f"Laps: {self.laps_completed}", curses.color_pair(4))
 
-            # Debug info with collision detection details
+            # Status indicator
             angle_deg = int(math.degrees(self.car.angle) % 360)
-            on_track_status = "ON TRACK" if not self.off_track else "OFF TRACK"
+            on_track_status = "ON TRACK" if not self.off_track else "OFF TRACK!"
             debug_color = curses.color_pair(4) if not self.off_track else curses.color_pair(5)
+            self.stdscr.addstr(hud_y, 60, on_track_status, debug_color | curses.A_BOLD)
 
-            # Calculate distances for debugging
-            dx = self.car.x - self.track.center_x
-            dy = self.car.y - self.track.center_y
-            outer_dist = (dx * dx) / (self.track.outer_radius_x * self.track.outer_radius_x) + \
-                        (dy * dy) / (self.track.outer_radius_y * self.track.outer_radius_y)
-            inner_dist = (dx * dx) / (self.track.inner_radius_x * self.track.inner_radius_x) + \
-                        (dy * dy) / (self.track.inner_radius_y * self.track.inner_radius_y)
-
-            self.stdscr.addstr(hud_y + 1, 2, f"{on_track_status} | Angle: {angle_deg}° | Pos:({int(self.car.x)},{int(self.car.y)})", debug_color)
-
+            # Lap times
+            hud_y2 = self.height - 2
             if self.last_lap_time:
-                self.stdscr.addstr(hud_y + 2, self.width - 30, f"Last: {self.last_lap_time:.2f}s", curses.color_pair(4))
+                self.stdscr.addstr(hud_y2, 2, f"Last Lap: {self.last_lap_time:.2f}s", curses.color_pair(4))
 
             if self.best_lap_time:
-                self.stdscr.addstr(hud_y + 3, self.width - 30, f"Best: {self.best_lap_time:.2f}s", curses.color_pair(3))
-
-            # Track dimensions and collision debug
-            # Show first line for first 5 seconds
-            if self.race_time < 5.0:
-                self.stdscr.addstr(hud_y + 3, 2, f"Terminal: {self.width}x{self.height} | Track Inner={self.track.inner_radius_x}x{self.track.inner_radius_y} Outer={self.track.outer_radius_x}x{self.track.outer_radius_y}", curses.color_pair(1))
-
-            # Always show collision distances
-            if self.race_time < 10.0:
-                dx = self.car.x - self.track.center_x
-                dy = self.car.y - self.track.center_y
-                outer_dist = (dx * dx) / (self.track.outer_radius_x * self.track.outer_radius_x) + \
-                            (dy * dy) / (self.track.outer_radius_y * self.track.outer_radius_y)
-                inner_dist = (dx * dx) / (self.track.inner_radius_x * self.track.inner_radius_x) + \
-                            (dy * dy) / (self.track.inner_radius_y * self.track.inner_radius_y)
-                collision_text = f"Collision: inner={inner_dist:.2f} (need >=1.0) outer={outer_dist:.2f} (need <=1.0)"
-                collision_color = curses.color_pair(4) if (inner_dist >= 1.0 and outer_dist <= 1.0) else curses.color_pair(5)
-                self.stdscr.addstr(self.height - 1, 2, collision_text, collision_color)
+                self.stdscr.addstr(hud_y2, 30, f"Best Lap: {self.best_lap_time:.2f}s", curses.color_pair(3))
 
             # Instructions
-            self.stdscr.addstr(hud_y + 2, 2, "Arrows: Drive | Space: Pause | Q: Quit", curses.color_pair(1))
+            instructions = "Arrows: Drive | Space: Pause | Q: Quit"
+            self.stdscr.addstr(hud_y2, self.width - len(instructions) - 2, instructions, curses.color_pair(1))
 
+            # Pause overlay
             if self.paused:
                 pause_msg = "*** PAUSED ***"
-                self.stdscr.addstr(self.height // 2, self.width // 2 - len(pause_msg) // 2,
+                pause_y = self.height // 2
+                self.stdscr.addstr(pause_y, self.width // 2 - len(pause_msg) // 2,
                                  pause_msg, curses.color_pair(3) | curses.A_BOLD)
         except curses.error:
             pass
