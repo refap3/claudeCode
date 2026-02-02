@@ -6,8 +6,9 @@ A collection of terminal-based Python games and simulations created with Claude 
 
 ### 🎮 [Racing Game](./racing)
 
-A terminal-based arcade racing game with physics-based car movement on an oval track.
+A terminal-based first-person arcade racing game (like OutRun) with physics-based car movement on an oval track.
 
+- First-person perspective rendering with track curvature
 - Real-time physics simulation with velocity, acceleration, and friction
 - Lap timing and tracking system
 - Arrow key controls with intuitive handling
@@ -35,11 +36,29 @@ pip install -r requirements.txt
 python main.py
 ```
 
+### 🚀 [Space Shooter](./space)
+
+A classic arcade-style space shooter game with dynamic difficulty scaling.
+
+- Progressive difficulty that increases as lives decrease
+- Lives system with miss tracking (5 misses = 1 life lost)
+- Dynamic enemy spawn rates and speeds
+- Score tracking and game over screen
+- Built with Pygame
+
+**Quick start:**
+```bash
+cd space
+pip install pygame
+python3 space3.py
+```
+
 ## Requirements
 
 - Python 3.x
 - For racing game: curses library (standard on Unix/macOS, requires windows-curses on Windows)
 - For Game of Life: numpy
+- For space shooter: pygame
 
 ## License
 
