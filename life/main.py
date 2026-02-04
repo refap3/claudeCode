@@ -90,6 +90,16 @@ def main():
     target_fps = args.fps
     frame_time = 1.0 / target_fps
 
+    # Placement mode state
+    placement_mode = False
+    placement_pattern = None
+    placement_x = args.width // 2
+    placement_y = args.height // 2
+
+    # Key buffer for detecting multi-character escape sequences
+    key_buffer = ""
+    last_key_time = time.time()
+
     try:
         with InputHandler() as input_handler:
             while running:
@@ -97,62 +107,124 @@ def main():
 
                 # Handle input (non-blocking)
                 key = input_handler.get_key()
+
+                # Accumulate keys in buffer for multi-character sequences
+                current_time = time.time()
                 if key:
+                    # Reset buffer if too much time has passed (0.2 seconds)
+                    if current_time - last_key_time > 0.2:
+                        key_buffer = ""
+                    key_buffer += key
+                    last_key_time = current_time
+
+                    # Keep buffer from growing too large
+                    if len(key_buffer) > 5:
+                        key_buffer = key_buffer[-5:]
+
+                # Detect complete arrow sequences in buffer
+                arrow_detected = False
+                if placement_mode:
+                    if '\x1b[A' in key_buffer or key_buffer.endswith('[A'):  # Up arrow
+                        placement_y = (placement_y - 1) % args.height
+                        key_buffer = ""
+                        arrow_detected = True
+                    elif '\x1b[B' in key_buffer or key_buffer.endswith('[B'):  # Down arrow
+                        placement_y = (placement_y + 1) % args.height
+                        key_buffer = ""
+                        arrow_detected = True
+                    elif '\x1b[C' in key_buffer or key_buffer.endswith('[C'):  # Right arrow
+                        placement_x = (placement_x + 1) % args.width
+                        key_buffer = ""
+                        arrow_detected = True
+                    elif '\x1b[D' in key_buffer or key_buffer.endswith('[D'):  # Left arrow
+                        placement_x = (placement_x - 1) % args.width
+                        key_buffer = ""
+                        arrow_detected = True
+
+                # Process individual keys only if we didn't detect an arrow
+                if key and not arrow_detected:
                     key_lower = key.lower()
 
-                    if key == ' ':
-                        # Pause/play
-                        paused = not paused
-                    elif key_lower == 'q' or key == '\x1b':
-                        # Quit
-                        running = False
-                    elif key_lower == 'r':
-                        # Reset to initial state
-                        if initial_grid:
-                            grid = initial_grid.copy()
-                            generation = 0
-                    elif key_lower == 'c':
-                        # Clear grid
-                        grid.clear()
-                        generation = 0
-                    elif key_lower == 'x':
-                        # Randomize grid
-                        grid.randomize(args.density)
-                        initial_grid = grid.copy()
-                        generation = 0
-                    elif key_lower == 'n' and paused:
-                        # Step one generation when paused
-                        grid.step()
-                        generation += 1
-                    elif key == '+' or key == '=':
-                        # Increase speed
-                        target_fps = min(target_fps + 2, 60)
-                        frame_time = 1.0 / target_fps
-                    elif key == '-' or key == '_':
-                        # Decrease speed
-                        target_fps = max(target_fps - 2, 1)
-                        frame_time = 1.0 / target_fps
-                    elif key.isdigit() and key != '0':
-                        # Load pattern by number
-                        pattern_list = sorted(PATTERNS.keys())
-                        pattern_idx = int(key) - 1
-                        if pattern_idx < len(pattern_list):
-                            pattern_name = pattern_list[pattern_idx]
-                            pattern = get_pattern(pattern_name)
+                    # Handle placement mode inputs
+                    if placement_mode:
+                        if key in ('\n', '\r'):  # Enter - confirm placement
+                            grid.place_pattern(placement_pattern, placement_x, placement_y)
+                            initial_grid = grid.copy()
+                            placement_mode = False
+                            key_buffer = ""
+                        elif key_lower == 'q':  # Allow quit during placement
+                            running = False
+                        elif key == '\x1b' and len(key_buffer) == 1:  # ESC only if alone
+                            # Wait a bit to see if it's part of arrow sequence
+                            pass  # Do nothing, wait for next keys
+                        # Ignore other keys in placement mode
+                    else:
+                        # Normal mode inputs
+                        if key == ' ':
+                            # Pause/play
+                            paused = not paused
+                            key_buffer = ""
+                        elif key_lower == 'q':
+                            # Quit
+                            running = False
+                        elif key == '\x1b' and '\x1b[' not in key_buffer:
+                            # ESC to quit (but only if not part of arrow sequence)
+                            # Wait briefly to ensure it's not an arrow key
+                            if len(key_buffer) == 1 and current_time - last_key_time > 0.15:
+                                running = False
+                                key_buffer = ""
+                        elif key_lower == 'r':
+                            # Reset to initial state
+                            if initial_grid:
+                                grid = initial_grid.copy()
+                                generation = 0
+                            key_buffer = ""
+                        elif key_lower == 'c':
+                            # Clear grid
                             grid.clear()
-                            center_x = args.width // 2
-                            center_y = args.height // 2
-                            grid.place_pattern(pattern, center_x, center_y)
+                            generation = 0
+                            key_buffer = ""
+                        elif key_lower == 'x':
+                            # Randomize grid
+                            grid.randomize(args.density)
                             initial_grid = grid.copy()
                             generation = 0
+                            key_buffer = ""
+                        elif key_lower == 'n' and paused:
+                            # Step one generation when paused
+                            grid.step()
+                            generation += 1
+                            key_buffer = ""
+                        elif key == '+' or key == '=':
+                            # Increase speed
+                            target_fps = min(target_fps + 2, 60)
+                            frame_time = 1.0 / target_fps
+                            key_buffer = ""
+                        elif key == '-' or key == '_':
+                            # Decrease speed
+                            target_fps = max(target_fps - 2, 1)
+                            frame_time = 1.0 / target_fps
+                            key_buffer = ""
+                        elif key.isdigit() and key != '0':
+                            # Enter placement mode
+                            pattern_list = sorted(PATTERNS.keys())
+                            pattern_idx = int(key) - 1
+                            if pattern_idx < len(pattern_list):
+                                pattern_name = pattern_list[pattern_idx]
+                                placement_pattern = get_pattern(pattern_name)
+                                placement_x = args.width // 2
+                                placement_y = args.height // 2
+                                placement_mode = True
+                                key_buffer = ""
 
-                # Update game state (if not paused)
-                if not paused:
+                # Update game state (if not paused and not in placement mode)
+                if not paused and not placement_mode:
                     grid.step()
                     generation += 1
 
                 # Render frame
-                renderer.render(grid, generation, target_fps, paused)
+                renderer.render(grid, generation, target_fps, paused,
+                               placement_mode, placement_pattern, placement_x, placement_y)
 
                 # Maintain frame rate
                 elapsed = time.time() - frame_start

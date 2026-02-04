@@ -22,7 +22,8 @@ class TerminalRenderer:
         sys.stdout.write('\033[2J\033[H')
         sys.stdout.flush()
 
-    def render(self, grid, generation, fps, paused=False):
+    def render(self, grid, generation, fps, paused=False,
+               placement_mode=False, placement_pattern=None, placement_x=0, placement_y=0):
         """
         Render the grid to the terminal.
 
@@ -31,6 +32,10 @@ class TerminalRenderer:
             generation: Current generation number
             fps: Current frames per second
             paused: Whether the simulation is paused
+            placement_mode: Whether in pattern placement mode
+            placement_pattern: Pattern to preview (if in placement mode)
+            placement_x: X position of pattern preview
+            placement_y: Y position of pattern preview
         """
         self.clear_screen()
 
@@ -43,8 +48,14 @@ class TerminalRenderer:
         lines.append("=" * (grid.width + 2))
         lines.append("")
 
+        # Create preview grid if in placement mode
+        display_grid = grid
+        if placement_mode and placement_pattern:
+            display_grid = grid.copy()
+            display_grid.place_pattern(placement_pattern, placement_x, placement_y)
+
         # Grid visualization
-        for row in grid.grid:
+        for row in display_grid.grid:
             line = ''.join(self.alive_char if cell else self.dead_char for cell in row)
             lines.append(f"|{line}|")
 
@@ -52,16 +63,19 @@ class TerminalRenderer:
         lines.append("")
 
         # Status line
-        status = f"Generation: {generation} | Population: {grid.get_population()} | FPS: {fps:.1f}"
-        if paused:
-            status += " | PAUSED"
+        if placement_mode:
+            status = "PLACEMENT MODE - Use arrows to move, [ENTER] to place, [ESC] to cancel"
+        else:
+            status = f"Generation: {generation} | Population: {grid.get_population()} | FPS: {fps:.1f}"
+            if paused:
+                status += " | PAUSED"
         lines.append(status)
         lines.append("")
 
         # Controls footer
         lines.append("Controls:")
         lines.append("  [SPACE] Pause/Play  [N] Next (when paused)  [R] Reset  [C] Clear  [X] Random")
-        lines.append("  [+/-] Speed  [1-9] Load pattern  [Q/ESC] Quit")
+        lines.append("  [+/-] Speed  [1-9] Select pattern (position with arrows, [ENTER] confirm)  [Q/ESC] Quit")
 
         # Print entire frame at once
         sys.stdout.write('\n'.join(lines))
