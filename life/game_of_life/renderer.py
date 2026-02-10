@@ -22,6 +22,11 @@ class TerminalRenderer:
         sys.stdout.write('\033[2J\033[H')
         sys.stdout.flush()
 
+    def move_cursor_home(self):
+        """Move cursor to home position without clearing screen."""
+        sys.stdout.write('\033[H')
+        sys.stdout.flush()
+
     def render(self, grid, generation, fps, paused=False,
                placement_mode=False, placement_pattern=None, placement_x=0, placement_y=0):
         """
@@ -37,7 +42,8 @@ class TerminalRenderer:
             placement_x: X position of pattern preview
             placement_y: Y position of pattern preview
         """
-        self.clear_screen()
+        # Move cursor to home instead of clearing to reduce flicker
+        self.move_cursor_home()
 
         # Build frame as string buffer for efficient rendering
         lines = []

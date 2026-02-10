@@ -55,6 +55,11 @@ def main():
     """Main game loop."""
     args = parse_args()
 
+    # Fix Windows console encoding for Unicode characters
+    if sys.platform == 'win32':
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
     # Initialize game components
     grid = GameGrid(args.width, args.height)
     renderer = TerminalRenderer()
@@ -102,6 +107,9 @@ def main():
 
     try:
         with InputHandler() as input_handler:
+            # Clear screen once at the start
+            renderer.clear_screen()
+
             while running:
                 frame_start = time.time()
 

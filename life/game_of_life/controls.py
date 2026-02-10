@@ -1,9 +1,12 @@
 """Input handling for keyboard controls."""
 
 import sys
-import select
-import termios
-import tty
+
+# Platform-specific imports
+if sys.platform != 'win32':
+    import select
+    import termios
+    import tty
 
 
 class InputHandler:
@@ -36,7 +39,23 @@ class InputHandler:
         if sys.platform == 'win32':
             import msvcrt
             if msvcrt.kbhit():
-                return msvcrt.getch().decode('utf-8', errors='ignore')
+                first_byte = msvcrt.getch()
+                # Check for special keys (arrow keys, function keys, etc.)
+                if first_byte in (b'\xe0', b'\x00'):
+                    # Special key - read the next byte
+                    if msvcrt.kbhit():
+                        second_byte = msvcrt.getch()
+                        # Map Windows arrow key codes to Unix-style escape sequences
+                        arrow_map = {
+                            b'H': '\x1b[A',  # Up arrow
+                            b'P': '\x1b[B',  # Down arrow
+                            b'M': '\x1b[C',  # Right arrow
+                            b'K': '\x1b[D',  # Left arrow
+                        }
+                        if second_byte in arrow_map:
+                            return arrow_map[second_byte]
+                        return second_byte.decode('utf-8', errors='ignore')
+                return first_byte.decode('utf-8', errors='ignore')
             return None
         else:
             # Unix/Mac
