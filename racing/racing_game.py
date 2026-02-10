@@ -1,14 +1,25 @@
 #!/usr/bin/env python3
 """
-Terminal Racing Game - First-person arcade racer
-Controls: Arrow keys to drive, Space to pause
+Terminal Racing Game - Top-down arcade racer
+Controls: Arrow keys to drive, Space to pause, Q to quit
 """
 
-import curses
+import sys
 import math
 import time
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Optional
+
+# Configure Windows console for UTF-8 output
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+# Platform-specific imports
+if sys.platform != 'win32':
+    import select
+    import termios
+    import tty
 
 
 @dataclass
@@ -64,253 +75,229 @@ class Track:
 
         return inner_dist >= 1.0 and outer_dist <= 1.0
 
-    def draw(self, win):
-        """Draw the track boundaries"""
-        # Draw outer boundary
-        for angle in range(0, 360, 2):
-            rad = math.radians(angle)
-            x = int(self.center_x + self.outer_radius_x * math.cos(rad))
-            y = int(self.center_y + self.outer_radius_y * math.sin(rad))
-            if 0 <= y < self.height - 1 and 0 <= x < self.width:
-                try:
-                    win.addch(y, x, '#', curses.color_pair(1))
-                except curses.error:
-                    pass
 
-        # Draw inner boundary
-        for angle in range(0, 360, 2):
-            rad = math.radians(angle)
-            x = int(self.center_x + self.inner_radius_x * math.cos(rad))
-            y = int(self.center_y + self.inner_radius_y * math.sin(rad))
-            if 0 <= y < self.height - 1 and 0 <= x < self.width:
-                try:
-                    win.addch(y, x, '#', curses.color_pair(1))
-                except curses.error:
-                    pass
-
-        # Draw start/finish line
-        for i in range(-2, 3):
-            y = self.start_y + i
-            if 0 <= y < self.height - 1:
-                try:
-                    win.addch(y, self.start_x, '|', curses.color_pair(3))
-                except curses.error:
-                    pass
-
-
-class FirstPersonRenderer:
-    """Renders the racing game from a first-person perspective"""
+class InputHandler:
+    """Cross-platform non-blocking keyboard input handler."""
 
     def __init__(self):
-        # Rendering parameters
-        self.min_distance = 5.0
-        self.max_distance = 100.0
-        self.num_slices = 30  # Number of horizontal scan lines
-        self.track_width_scale = 3.0  # Scale factor for track width visibility
+        """Initialize the input handler."""
+        self.old_settings = None
+        if sys.platform != 'win32':
+            self.old_settings = termios.tcgetattr(sys.stdin)
 
-        # Visual characters
-        self.road_char = '='
-        self.wall_char = '█'
-        self.edge_char = '|'
+    def __enter__(self):
+        """Set up non-blocking input mode."""
+        if sys.platform != 'win32':
+            tty.setcbreak(sys.stdin.fileno())
+        return self
 
-    def calculate_future_position(self, car: Car, distance: float) -> Tuple[float, float]:
-        """Calculate position ahead of car at given distance"""
-        future_x = car.x + math.cos(car.angle) * distance
-        future_y = car.y + math.sin(car.angle) * distance
-        return future_x, future_y
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Restore terminal settings."""
+        if sys.platform != 'win32' and self.old_settings:
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.old_settings)
 
-    def find_track_boundaries(self, track: Track, center_x: float, center_y: float,
-                            perpendicular_angle: float, max_search: float = 50.0) -> Tuple[float, float]:
-        """Find left and right track boundaries at a given point
-
-        For oval tracks, calculate actual track width based on geometry
-        rather than ray-tracing from potentially off-center positions.
+    def get_key(self):
         """
-        # Calculate track width at this position based on track geometry
-        # The oval track has constant width: (outer_radius - inner_radius)
-        dx = center_x - track.center_x
-        dy = center_y - track.center_y
+        Get a key press in a non-blocking way.
 
-        # Calculate angle from track center to this position
-        angle_to_pos = math.atan2(dy, dx)
+        Returns:
+            The pressed key as a string, or None if no key was pressed
+        """
+        if sys.platform == 'win32':
+            import msvcrt
+            if msvcrt.kbhit():
+                first_byte = msvcrt.getch()
+                # Check for special keys (arrow keys, function keys, etc.)
+                if first_byte in (b'\xe0', b'\x00'):
+                    # Special key - wait for second byte with retry logic
+                    second_byte = None
+                    for _ in range(10):  # Try up to 10 times (10ms total)
+                        if msvcrt.kbhit():
+                            second_byte = msvcrt.getch()
+                            break
+                        time.sleep(0.001)  # Wait 1ms between tries
 
-        # Calculate distances from track center to inner and outer boundaries at this angle
-        # Using ellipse formula: r(θ) for an ellipse
-        outer_dist = math.sqrt(
-            (track.outer_radius_x * math.cos(angle_to_pos)) ** 2 +
-            (track.outer_radius_y * math.sin(angle_to_pos)) ** 2
-        )
-        inner_dist = math.sqrt(
-            (track.inner_radius_x * math.cos(angle_to_pos)) ** 2 +
-            (track.inner_radius_y * math.sin(angle_to_pos)) ** 2
-        )
+                    if second_byte is not None:
+                        # Map Windows arrow key codes to Unix-style escape sequences
+                        arrow_map = {
+                            b'H': '\x1b[A',  # Up arrow
+                            b'P': '\x1b[B',  # Down arrow
+                            b'M': '\x1b[C',  # Right arrow
+                            b'K': '\x1b[D',  # Left arrow
+                        }
+                        if second_byte in arrow_map:
+                            return arrow_map[second_byte]
+                        return second_byte.decode('utf-8', errors='ignore')
+                    # If second byte never arrived, ignore the key
+                    return None
+                return first_byte.decode('utf-8', errors='ignore')
+            return None
+        else:
+            # Unix/Mac
+            if select.select([sys.stdin], [], [], 0)[0]:
+                key = sys.stdin.read(1)
+                # Handle escape sequences
+                if key == '\x1b':
+                    # Try to read more characters for escape sequences
+                    if select.select([sys.stdin], [], [], 0.1)[0]:
+                        key += sys.stdin.read(2)
+                return key
+            return None
 
-        # Track width at this angle
-        track_width = outer_dist - inner_dist
 
-        # Distance from center of position to each edge (symmetric)
-        half_width = track_width / 2.0
+class TopDownRenderer:
+    """Renders the racing game from a top-down (bird's eye) perspective"""
 
-        return half_width, half_width
+    def __init__(self, width: int, height: int):
+        self.width = width
+        self.height = height
+        # Character buffer for efficient rendering
+        self.buffer = [[' ' for _ in range(width)] for _ in range(height)]
 
-    def calculate_lateral_offset(self, track: Track, car: Car, future_x: float, future_y: float) -> float:
-        """Calculate how much the track curves left/right at future position"""
-        # Find the angle to track center from future position
-        to_center_x = track.center_x - future_x
-        to_center_y = track.center_y - future_y
+    def clear_screen(self):
+        """Clear the terminal screen using ANSI escape codes."""
+        sys.stdout.write('\033[2J\033[H')
+        sys.stdout.flush()
 
-        # Calculate angle difference
-        track_center_angle = math.atan2(to_center_y, to_center_x)
-        angle_diff = track_center_angle - car.angle
+    def move_cursor_home(self):
+        """Move cursor to home position without clearing screen."""
+        sys.stdout.write('\033[H')
+        sys.stdout.flush()
 
-        # Normalize to -pi to pi
-        while angle_diff > math.pi:
-            angle_diff -= 2 * math.pi
-        while angle_diff < -math.pi:
-            angle_diff += 2 * math.pi
+    def get_car_character(self, angle: float) -> str:
+        """Get directional arrow character based on car angle"""
+        # Normalize angle to 0-2π
+        angle = angle % (2 * math.pi)
 
-        # The lateral offset is the perpendicular component
-        return math.sin(angle_diff) * 15.0
+        # Convert to degrees for easier comparison
+        degrees = math.degrees(angle)
 
-    def render_track_slice(self, win, screen_y: int, screen_width: int,
-                          left_wall_x: int, right_wall_x: int,
-                          is_on_track: bool, is_finish_line: bool = False):
-        """Render a single horizontal slice of the track"""
-        if screen_y < 0 or screen_y >= curses.LINES - 5:
-            return
+        # Map angle to 8 directional arrows
+        if degrees < 22.5 or degrees >= 337.5:
+            return '►'  # Right
+        elif degrees < 67.5:
+            return '◢'  # Down-right
+        elif degrees < 112.5:
+            return '▼'  # Down
+        elif degrees < 157.5:
+            return '◣'  # Down-left
+        elif degrees < 202.5:
+            return '◄'  # Left
+        elif degrees < 247.5:
+            return '◤'  # Up-left
+        elif degrees < 292.5:
+            return '▲'  # Up
+        else:
+            return '◥'  # Up-right
 
-        try:
-            # Choose colors
-            wall_color = curses.color_pair(1)
-            road_color = curses.color_pair(4) if is_on_track else curses.color_pair(5)
-            finish_color = curses.color_pair(3)
+    def render(self, car: Car, track: Track, game_state: dict):
+        """
+        Render the top-down view of the track and car.
 
-            # Clamp boundaries to screen
-            left_wall_x = max(0, min(screen_width - 1, left_wall_x))
-            right_wall_x = max(0, min(screen_width - 1, right_wall_x))
+        Args:
+            car: Car instance with position and angle
+            track: Track instance with boundaries
+            game_state: Dictionary with race_time, laps_completed, etc.
+        """
+        # Clear buffer
+        for y in range(self.height):
+            for x in range(self.width):
+                self.buffer[y][x] = ' '
 
-            # Ensure left is actually left of right
-            if left_wall_x > right_wall_x:
-                left_wall_x, right_wall_x = right_wall_x, left_wall_x
+        # Draw track boundaries
+        # Draw outer boundary
+        for angle_deg in range(0, 360, 2):
+            rad = math.radians(angle_deg)
+            x = int(track.center_x + track.outer_radius_x * math.cos(rad))
+            y = int(track.center_y + track.outer_radius_y * math.sin(rad))
+            if 0 <= y < self.height and 0 <= x < self.width:
+                self.buffer[y][x] = '#'
 
-            # Draw the slice
-            for x in range(screen_width):
-                if x < left_wall_x:
-                    # Left off-road
-                    win.addch(screen_y, x, ' ')
-                elif x == left_wall_x:
-                    # Left wall
-                    win.addch(screen_y, x, self.edge_char, wall_color)
-                elif x < right_wall_x:
-                    # Track surface
-                    if is_finish_line and screen_y % 2 == 0:
-                        win.addch(screen_y, x, '|', finish_color)
-                    else:
-                        win.addch(screen_y, x, self.road_char, road_color)
-                elif x == right_wall_x:
-                    # Right wall
-                    win.addch(screen_y, x, self.edge_char, wall_color)
-                else:
-                    # Right off-road
-                    win.addch(screen_y, x, ' ')
-        except curses.error:
-            pass
+        # Draw inner boundary
+        for angle_deg in range(0, 360, 2):
+            rad = math.radians(angle_deg)
+            x = int(track.center_x + track.inner_radius_x * math.cos(rad))
+            y = int(track.center_y + track.inner_radius_y * math.sin(rad))
+            if 0 <= y < self.height and 0 <= x < self.width:
+                self.buffer[y][x] = '#'
 
-    def render_view(self, win, car: Car, track: Track, screen_width: int, screen_height: int):
-        """Render the first-person view of the track"""
-        view_height = screen_height - 10  # Leave room for dashboard and HUD
+        # Draw start/finish line (horizontal, on right side of track)
+        finish_y = track.start_y
+        # Calculate x range from inner to outer radius on right side
+        finish_x_start = int(track.center_x + track.inner_radius_x)
+        finish_x_end = int(track.center_x + track.outer_radius_x)
+        if 0 <= finish_y < self.height:
+            for x in range(finish_x_start, finish_x_end + 1):
+                if 0 <= x < self.width:
+                    self.buffer[finish_y][x] = '='
 
-        # Render each horizontal slice from top (far) to bottom (near)
-        for row in range(view_height):
-            # Calculate distance for this row (top = far, bottom = near)
-            t = row / view_height  # 0 at top, 1 at bottom
-            distance = self.min_distance + (self.max_distance - self.min_distance) * (1 - t)
+        # Draw car
+        car_x = int(car.x)
+        car_y = int(car.y)
+        if 0 <= car_y < self.height and 0 <= car_x < self.width:
+            car_char = self.get_car_character(car.angle)
+            self.buffer[car_y][car_x] = car_char
 
-            # Calculate future position at this distance
-            future_x, future_y = self.calculate_future_position(car, distance)
+        # Move cursor to home
+        self.move_cursor_home()
 
-            # Check if this position is on the track
-            on_track_at_distance = track.is_on_track(future_x, future_y)
+        # Build output
+        lines = []
 
-            # Calculate track boundaries at this distance
-            left_dist, right_dist = self.find_track_boundaries(track, future_x, future_y, car.angle)
+        # Render buffer
+        for row in self.buffer:
+            lines.append(''.join(row))
 
-            # Apply perspective scaling (things get wider as they get closer)
-            perspective_scale = self.min_distance / distance
+        # Add separator
+        lines.append('=' * self.width)
 
-            # Calculate lateral offset (track curving left/right)
-            lateral_offset = self.calculate_lateral_offset(track, car, future_x, future_y)
-            lateral_offset_pixels = int(lateral_offset * perspective_scale)
+        # Add HUD
+        speed = game_state.get('speed', 0.0)
+        race_time = game_state.get('race_time', 0.0)
+        laps = game_state.get('laps_completed', 0)
+        last_lap = game_state.get('last_lap_time')
+        best_lap = game_state.get('best_lap_time')
+        off_track = game_state.get('off_track', False)
+        paused = game_state.get('paused', False)
 
-            # Calculate screen positions for track edges
-            center_x = screen_width // 2 + lateral_offset_pixels
-            left_wall_screen = int(center_x - left_dist * perspective_scale * self.track_width_scale)
-            right_wall_screen = int(center_x + right_dist * perspective_scale * self.track_width_scale)
+        # Main stats line
+        status_line = f"Speed: {speed:.1f} | Time: {race_time:.2f}s | Laps: {laps}"
+        if off_track:
+            status_line += " | OFF TRACK!"
+        if paused:
+            status_line += " | PAUSED"
+        lines.append(status_line)
 
-            # Check if this is near the finish line
-            is_finish = abs(future_x - track.start_x) < 3 and abs(future_y - track.start_y) < 3
+        # Lap times line
+        lap_times = []
+        if last_lap is not None:
+            lap_times.append(f"Last Lap: {last_lap:.2f}s")
+        if best_lap is not None:
+            lap_times.append(f"Best: {best_lap:.2f}s")
+        if lap_times:
+            lines.append(' | '.join(lap_times))
+        else:
+            lines.append('')
 
-            # Render this slice
-            self.render_track_slice(win, row, screen_width, left_wall_screen, right_wall_screen,
-                                   on_track_at_distance, is_finish)
+        # Controls
+        lines.append('')
+        lines.append('Controls: Arrow Keys=Drive | Space=Pause | Q=Quit')
 
-    def render_dashboard(self, win, screen_width: int, screen_height: int, car: Car):
-        """Render car dashboard/cockpit at bottom of screen"""
-        dashboard_y = screen_height - 8
-
-        # Car hood/cockpit design - more visible
-        hood_width = min(60, screen_width - 4)
-
-        # Create the hood lines
-        dashboard = []
-
-        # Top of hood (narrow, far from driver)
-        top_width = hood_width // 3
-        top_line = " " * ((screen_width - top_width) // 2) + "█" * top_width
-        dashboard.append(top_line)
-
-        # Hood getting wider
-        for i in range(1, 4):
-            width = top_width + (hood_width - top_width) * i // 3
-            line = " " * ((screen_width - width) // 2) + "▓" * width
-            dashboard.append(line)
-
-        # Dashboard/windshield frame
-        frame_width = min(hood_width + 20, screen_width - 2)
-        left_margin = (screen_width - frame_width) // 2
-
-        # Instrument cluster
-        speed_display = f"[SPD:{car.speed:.1f}]"
-        dashboard.append(" " * left_margin + "╔" + "═" * (frame_width - 2) + "╗")
-        dashboard.append(" " * left_margin + "║" + speed_display.center(frame_width - 2) + "║")
-
-        try:
-            for i, line in enumerate(dashboard):
-                y = dashboard_y + i
-                if y < screen_height - 3:
-                    win.addstr(y, 0, line[:screen_width], curses.color_pair(2) | curses.A_BOLD)
-        except curses.error:
-            pass
+        # Print entire frame at once
+        sys.stdout.write('\n'.join(lines))
+        sys.stdout.flush()
 
 
 class Game:
     """Main game controller"""
 
-    def __init__(self, stdscr):
-        self.stdscr = stdscr
-        self.height, self.width = stdscr.getmaxyx()
-
-        # Initialize colors
-        curses.start_color()
-        curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)  # Track
-        curses.init_pair(2, curses.COLOR_CYAN, curses.COLOR_BLACK)   # Car
-        curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK) # Finish line
-        curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_BLACK)  # HUD
-        curses.init_pair(5, curses.COLOR_RED, curses.COLOR_BLACK)    # Off-track
+    def __init__(self, width: int = 100, height: int = 50):
+        self.width = width
+        self.height = height
 
         # Game objects
-        self.track = Track(self.width, self.height - 5)
-        self.renderer = FirstPersonRenderer()
+        self.track = Track(width, height)
+        self.renderer = TopDownRenderer(width, height)
 
         # Start car on the right side of the track, between inner and outer boundaries
         track_width = (self.track.outer_radius_x - self.track.inner_radius_x) / 2
@@ -319,7 +306,7 @@ class Game:
         self.car = Car(
             x=start_x,
             y=self.track.center_y,
-            angle=math.pi  # Start facing left (into the track)
+            angle=math.pi / 2  # Start facing down (following the track)
         )
 
         # Game state
@@ -332,11 +319,6 @@ class Game:
         self.best_lap_time = None
         self.last_lap_time = None
         self.off_track = False
-
-        # Input
-        self.stdscr.nodelay(True)
-        self.stdscr.keypad(True)
-        curses.curs_set(0)
 
         # Verify car starts on track
         self.off_track = not self.track.is_on_track(self.car.x, self.car.y)
@@ -384,14 +366,14 @@ class Game:
 
         # Check collision with track boundaries
         if self.track.is_on_track(new_x, new_y):
+            # Can move to new position - update and clear off-track
             self.car.x = new_x
             self.car.y = new_y
             self.off_track = False
         else:
-            # Hit wall - stop the car
-            self.car.vx *= -0.5
-            self.car.vy *= -0.5
-            self.car.speed *= 0.3
+            # Hit wall - reduce speed significantly and bounce back
+            self.car.vx *= -0.3
+            self.car.vy *= -0.3
             self.off_track = True
 
         # Calculate speed
@@ -403,133 +385,102 @@ class Game:
         # Check for lap completion
         self.check_lap_completion()
 
-    def handle_input(self):
+    def handle_input(self, input_handler: InputHandler):
         """Handle keyboard input"""
-        try:
-            key = self.stdscr.getch()
+        key = input_handler.get_key()
 
-            if key == ord(' '):
-                self.paused = not self.paused
-                if not self.paused:
-                    # Adjust start time to account for pause
-                    self.start_time = time.time() - self.race_time
-                return
+        if key is None:
+            return
 
-            if self.paused:
-                return
+        if key == ' ':
+            self.paused = not self.paused
+            if not self.paused:
+                # Adjust start time to account for pause
+                self.start_time = time.time() - self.race_time
+            return
 
-            if key == curses.KEY_UP:
-                # Accelerate in current direction
-                self.car.vx += math.cos(self.car.angle) * self.car.ACCELERATION
-                self.car.vy += math.sin(self.car.angle) * self.car.ACCELERATION
+        if self.paused:
+            return
 
-                # Clamp to max speed
-                speed = math.sqrt(self.car.vx ** 2 + self.car.vy ** 2)
-                if speed > self.car.MAX_SPEED:
-                    self.car.vx = (self.car.vx / speed) * self.car.MAX_SPEED
-                    self.car.vy = (self.car.vy / speed) * self.car.MAX_SPEED
+        if key == '\x1b[A':  # Up arrow
+            # Accelerate in current direction
+            self.car.vx += math.cos(self.car.angle) * self.car.ACCELERATION
+            self.car.vy += math.sin(self.car.angle) * self.car.ACCELERATION
 
-            elif key == curses.KEY_DOWN:
-                # Brake/Reverse
-                self.car.vx -= math.cos(self.car.angle) * self.car.BRAKE_FORCE
-                self.car.vy -= math.sin(self.car.angle) * self.car.BRAKE_FORCE
+            # Clamp to max speed
+            speed = math.sqrt(self.car.vx ** 2 + self.car.vy ** 2)
+            if speed > self.car.MAX_SPEED:
+                self.car.vx = (self.car.vx / speed) * self.car.MAX_SPEED
+                self.car.vy = (self.car.vy / speed) * self.car.MAX_SPEED
 
-            elif key == curses.KEY_LEFT:
-                # Turn left (counterclockwise)
-                self.car.angle -= self.car.TURN_SPEED
+        elif key == '\x1b[B':  # Down arrow
+            # Brake/Reverse
+            self.car.vx -= math.cos(self.car.angle) * self.car.BRAKE_FORCE
+            self.car.vy -= math.sin(self.car.angle) * self.car.BRAKE_FORCE
 
-            elif key == curses.KEY_RIGHT:
-                # Turn right (clockwise)
-                self.car.angle += self.car.TURN_SPEED
+        elif key == '\x1b[D':  # Left arrow
+            # Turn left (counterclockwise)
+            self.car.angle -= self.car.TURN_SPEED
 
-            elif key == ord('q') or key == ord('Q'):
-                self.running = False
+        elif key == '\x1b[C':  # Right arrow
+            # Turn right (clockwise)
+            self.car.angle += self.car.TURN_SPEED
 
-        except curses.error:
-            pass
+        elif key in ('q', 'Q', '\x1b'):  # Q or ESC
+            self.running = False
 
     def draw(self):
-        """Render everything in first-person view"""
-        self.stdscr.clear()
-
-        # Render first-person view of the track
-        self.renderer.render_view(self.stdscr, self.car, self.track, self.width, self.height)
-
-        # Render car dashboard at bottom
-        self.renderer.render_dashboard(self.stdscr, self.width, self.height, self.car)
-
-        # Draw HUD
-        hud_y = self.height - 3
-        try:
-            # Main stats
-            self.stdscr.addstr(hud_y, 2, f"Speed: {self.car.speed:.1f}", curses.color_pair(4))
-            self.stdscr.addstr(hud_y, 20, f"Time: {self.race_time:.2f}s", curses.color_pair(4))
-            self.stdscr.addstr(hud_y, 40, f"Laps: {self.laps_completed}", curses.color_pair(4))
-
-            # Status indicator
-            angle_deg = int(math.degrees(self.car.angle) % 360)
-            on_track_status = "ON TRACK" if not self.off_track else "OFF TRACK!"
-            debug_color = curses.color_pair(4) if not self.off_track else curses.color_pair(5)
-            self.stdscr.addstr(hud_y, 60, on_track_status, debug_color | curses.A_BOLD)
-
-            # Lap times
-            hud_y2 = self.height - 2
-            if self.last_lap_time:
-                self.stdscr.addstr(hud_y2, 2, f"Last Lap: {self.last_lap_time:.2f}s", curses.color_pair(4))
-
-            if self.best_lap_time:
-                self.stdscr.addstr(hud_y2, 30, f"Best Lap: {self.best_lap_time:.2f}s", curses.color_pair(3))
-
-            # Instructions
-            instructions = "Arrows: Drive | Space: Pause | Q: Quit"
-            self.stdscr.addstr(hud_y2, self.width - len(instructions) - 2, instructions, curses.color_pair(1))
-
-            # Pause overlay
-            if self.paused:
-                pause_msg = "*** PAUSED ***"
-                pause_y = self.height // 2
-                self.stdscr.addstr(pause_y, self.width // 2 - len(pause_msg) // 2,
-                                 pause_msg, curses.color_pair(3) | curses.A_BOLD)
-        except curses.error:
-            pass
-
-        self.stdscr.refresh()
+        """Render everything in top-down view"""
+        game_state = {
+            'speed': self.car.speed,
+            'race_time': self.race_time,
+            'laps_completed': self.laps_completed,
+            'last_lap_time': self.last_lap_time,
+            'best_lap_time': self.best_lap_time,
+            'off_track': self.off_track,
+            'paused': self.paused,
+        }
+        self.renderer.render(self.car, self.track, game_state)
 
     def run(self):
         """Main game loop"""
-        last_time = time.time()
-        target_fps = 30
-        frame_time = 1.0 / target_fps
+        # Clear screen once at start
+        self.renderer.clear_screen()
 
-        while self.running:
-            current_time = time.time()
-            dt = current_time - last_time
+        with InputHandler() as input_handler:
+            last_time = time.time()
+            target_fps = 30
+            frame_time = 1.0 / target_fps
 
-            # Handle input
-            self.handle_input()
+            while self.running:
+                current_time = time.time()
+                dt = current_time - last_time
 
-            # Update physics
-            self.update_physics(dt)
+                # Handle input
+                self.handle_input(input_handler)
 
-            # Render
-            self.draw()
+                # Update physics
+                self.update_physics(dt)
 
-            # Frame rate limiting
-            elapsed = time.time() - current_time
-            if elapsed < frame_time:
-                time.sleep(frame_time - elapsed)
+                # Render
+                self.draw()
 
-            last_time = current_time
+                # Frame rate limiting
+                elapsed = time.time() - current_time
+                if elapsed < frame_time:
+                    time.sleep(frame_time - elapsed)
+
+                last_time = current_time
 
 
-def main(stdscr):
-    """Entry point for curses"""
-    game = Game(stdscr)
-    game.run()
+def main():
+    """Entry point"""
+    try:
+        game = Game(width=100, height=50)
+        game.run()
+    except KeyboardInterrupt:
+        print("\n\nGame ended. Thanks for playing!")
 
 
 if __name__ == "__main__":
-    try:
-        curses.wrapper(main)
-    except KeyboardInterrupt:
-        print("\nGame ended. Thanks for playing!")
+    main()
