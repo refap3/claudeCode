@@ -56,15 +56,15 @@ class Enemy(pygame.sprite.Sprite):
         pygame.draw.circle(self.image, BLACK, (15, 15), 15)
         self.rect = self.image.get_rect()
         self.rect.x = random.randrange(SCREEN_WIDTH - self.rect.width)
-        self.rect.y = random.randrange(-100, -40)
-        self.speed_y = random.randrange(1, 8)
+        self.rect.y = random.randrange(-300, -100)
+        self.speed_y = random.randrange(1, 4)
 
     def update(self):
         self.rect.y += self.speed_y
         if self.rect.top > SCREEN_HEIGHT + 10 or self.rect.left < -25 or self.rect.right > SCREEN_WIDTH + 20:
             self.rect.x = random.randrange(SCREEN_WIDTH - self.rect.width)
-            self.rect.y = random.randrange(-100, -40)
-            self.speed_y = random.randrange(1, 8)
+            self.rect.y = random.randrange(-300, -100)
+            self.speed_y = random.randrange(1, 4)
 
 # Bullet class
 class Bullet(pygame.sprite.Sprite):
@@ -100,6 +100,11 @@ for i in range(8):
 # Clock for controlling frame rate
 clock = pygame.time.Clock()
 
+# Game variables
+score = 0
+lives = 3
+shoot_cooldown = 0  # Cooldown timer for shooting
+
 # Main game loop
 running = True
 while running:
@@ -110,9 +115,16 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
-        elif event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_SPACE:
-                player.shoot()
+
+    # Continuous shooting with space key
+    keystate = pygame.key.get_pressed()
+    if keystate[pygame.K_SPACE] and shoot_cooldown <= 0:
+        player.shoot()
+        shoot_cooldown = 10  # Delay between shots (10 frames = ~0.16 seconds)
+
+    # Decrease cooldown
+    if shoot_cooldown > 0:
+        shoot_cooldown -= 1
 
     # Update
     all_sprites.update()
@@ -120,21 +132,39 @@ while running:
     # Check bullet collision with enemies
     hits = pygame.sprite.groupcollide(bullets, enemies, True, True)
     for hit in hits:
+        score += 10
         new_enemy = Enemy()
         all_sprites.add(new_enemy)
         enemies.add(new_enemy)
 
     # Check if player collides with enemy
-    hits = pygame.sprite.spritecollide(player, enemies, False)
+    hits = pygame.sprite.spritecollide(player, enemies, True)
     if hits:
-        running = False
+        lives -= 1
+        if lives <= 0:
+            running = False
 
     # Draw / render
     screen.fill(BLACK)
     all_sprites.draw(screen)
 
+    # Draw score and lives
+    score_text = font.render(f"Score: {score}", True, WHITE)
+    lives_text = font.render(f"Lives: {lives}", True, WHITE)
+    screen.blit(score_text, (10, 10))
+    screen.blit(lives_text, (10, 50))
+
     # Flip the display to update the screen
     pygame.display.flip()
+
+# Game over screen
+screen.fill(BLACK)
+game_over_text = font.render("GAME OVER", True, WHITE)
+final_score_text = font.render(f"Final Score: {score}", True, WHITE)
+screen.blit(game_over_text, (SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 - 50))
+screen.blit(final_score_text, (SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2))
+pygame.display.flip()
+pygame.time.wait(3000)
 
 # Quit Pygame
 pygame.quit()
