@@ -364,10 +364,8 @@ class Game:
             
         # Draw instructions
         if not self.game_over:
-            instr_text1 = self.small_font.render("Use ARROW KEYS to move, SPACE to shoot", True, WHITE)
-            instr_text2 = self.small_font.render("Hold SPACE to fire continuously", True, WHITE)
-            screen.blit(instr_text1, (WIDTH/2 - 150, HEIGHT - 40))
-            screen.blit(instr_text2, (WIDTH/2 - 150, HEIGHT - 20))
+            instr_text1 = self.small_font.render("ARROW KEYS: move  SPACE: shoot  M: mute  Q: quit", True, WHITE)
+            screen.blit(instr_text1, (WIDTH/2 - 190, HEIGHT - 20))
 
 # Main game loop
 def main():
@@ -375,13 +373,19 @@ def main():
     game = Game()
     
     running = True
+    muted = False
     while running:
         # Handle events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_r and game.game_over:
+                if event.key == pygame.K_q:
+                    running = False
+                elif event.key == pygame.K_m:
+                    muted = not muted
+                    pygame.mixer.set_num_channels(0 if muted else 8)
+                elif event.key == pygame.K_r and game.game_over:
                     # Restart game
                     game = Game()
                     
