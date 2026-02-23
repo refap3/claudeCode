@@ -1,6 +1,7 @@
 import pygame
 import random
 import math
+import numpy as np
 
 # Initialize pygame
 pygame.init()
@@ -32,31 +33,25 @@ def create_sounds():
     
     # Generate a simple square wave for shooting sound
     frames = int(duration * sample_rate)
-    shoot_wave = []
-    for i in range(frames):
-        # Create a square wave with some noise
-        wave_value = 127 * (1 if i % 100 < 50 else -1)
-        shoot_wave.append(wave_value)
-    
-    # Create sound from the waveform
-    shoot_sound = pygame.sndarray.make_sound(
-        pygame.sndarray.array(shoot_wave, dtype=pygame.int8)
+    shoot_mono = np.array(
+        [32767 * (1 if i % 100 < 50 else -1) for i in range(frames)],
+        dtype=np.int16
     )
+    shoot_wave = np.column_stack([shoot_mono, shoot_mono])
+    shoot_sound = pygame.sndarray.make_sound(shoot_wave)
     shoot_sound.set_volume(0.3)
-    
+
     # Create explosion sound
     # Create a short, sharp sound for explosions
-    explosion_wave = []
-    for i in range(int(0.2 * sample_rate)):
-        # Create a quick decay effect with some noise
-        amplitude = 127 * math.exp(-i / (sample_rate * 0.05))
-        # Add some noise to make it more interesting
-        noise = random.randint(-20, 20)
-        explosion_wave.append(int(amplitude) + noise)
-    
-    explosion_sound = pygame.sndarray.make_sound(
-        pygame.sndarray.array(explosion_wave, dtype=pygame.int8)
+    exp_frames = int(0.2 * sample_rate)
+    explosion_mono = np.array(
+        [min(32767, max(-32768,
+             int(32767 * math.exp(-i / (sample_rate * 0.05))) + random.randint(-2000, 2000)))
+         for i in range(exp_frames)],
+        dtype=np.int16
     )
+    explosion_wave = np.column_stack([explosion_mono, explosion_mono])
+    explosion_sound = pygame.sndarray.make_sound(explosion_wave)
     explosion_sound.set_volume(0.5)
     
     return shoot_sound, explosion_sound
