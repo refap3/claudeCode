@@ -2,35 +2,29 @@
 """
 sudoku_gui.py — Pygame GUI for the Sudoku Tutor
 
-Provides a windowed interface for sudoku_tutor.py with:
-  • 9×9 grid with candidate (pencilmark) display
-  • Step-by-step navigation with strategy highlighting
-  • Puzzle input mode with live conflict detection
-  • Auto-play mode
-
-Usage:
-    python sudoku_gui.py [puzzle_file]
-
 Keys (solve mode):
-    SPACE / RIGHT    — next step
-    LEFT / BACKSPACE — previous step
-    A                — toggle auto-play
-    C                — toggle candidate display
-    R                — reset to step 0
-    I                — enter input mode
-    ESC              — quit
+    SPACE / →        next step          ← / BACKSPACE    previous step
+    A                toggle auto-play   C                toggle candidates
+    R                reset to step 0    D                toggle dark mode
+    H                progressive hint   P                enter play mode
+    1–9              digit filter       0                clear filter
+    Ctrl+E           export PNG         I                enter input mode
+    ESC              quit
 
 Keys (input mode):
-    1–9              — set digit
-    0 / DEL          — clear cell
-    Arrow keys       — move selection
-    X                — clear all cells
-    ENTER            — solve the entered puzzle
-    ESC              — cancel / return to solve mode
+    1–9  set digit   0/Del  clear cell   Arrows  move   X  clear all
+    Ctrl+Z  undo     Ctrl+Y  redo        Enter  solve    ESC  cancel
+
+Keys (play mode):
+    1–9  fill digit  0/Del  erase        Arrows  move   H  hint
+    ESC  exit play mode
+
+Right-click any cell (solve mode): toggle pencilmarks
 """
 
-import sys
+import sys, json, os, threading
 from copy import deepcopy
+from pathlib import Path
 
 import pygame
 
@@ -38,110 +32,170 @@ from sudoku_tutor import (
     Grid, Step, ALL_STRATEGIES, DEFAULT_PUZZLE, read_puzzle,
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Layout constants
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Optional imports ──────────────────────────────────────────────────────────
+try:
+    from puzzles import PUZZLES, get_puzzles_by_tier, get_all_tiers
+    HAS_PUZZLES = True
+except ImportError:
+    PUZZLES, HAS_PUZZLES = [], False
 
-MARGIN    = 16
-CELL_SIZE = 64
-GRID_PX   = 576          # 9 × 64
-PANEL_W   = 320
-BTN_H     = 38
+try:
+    from sudoku_generator import generate_puzzle
+    HAS_GENERATOR = True
+except ImportError:
+    HAS_GENERATOR = False
 
-GRID_X  = MARGIN                          # 16
-GRID_Y  = MARGIN                          # 16
-PANEL_X = GRID_X + GRID_PX + MARGIN       # 608
-BTN_Y   = GRID_Y + GRID_PX + MARGIN       # 608
+# ── Config ────────────────────────────────────────────────────────────────────
+CONFIG_PATH = Path.home() / ".sudokurc"
 
-WIN_W = PANEL_X + PANEL_W + MARGIN        # 944
-WIN_H = BTN_Y + BTN_H + MARGIN            # 662
+def load_config() -> dict:
+    defaults = {
+        "dark_mode": False,
+        "show_candidates": True,
+        "auto_interval": 1000,
+        "last_puzzle": "sd0.txt",
+    }
+    try:
+        with open(CONFIG_PATH) as f:
+            return {**defaults, **json.load(f)}
+    except Exception:
+        return defaults
 
-SUBCELL_W    = CELL_SIZE // 3             # 21
-SUBCELL_H    = CELL_SIZE // 3             # 21
-PANEL_SURF_H = 1400                       # off-screen surface height for scrollable panel
+def save_config(cfg: dict):
+    try:
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(cfg, f, indent=2)
+    except Exception:
+        pass
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Colours
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Layout ────────────────────────────────────────────────────────────────────
+MARGIN      = 16
+CELL_SIZE   = 64
+GRID_PX     = 576           # 9 × 64
+PANEL_W     = 320
+BTN_H       = 34
+TIMELINE_H  = 12
 
-C_BG           = (240, 240, 235)
-C_GIVEN_BG     = (215, 228, 248)
-C_GIVEN_FG     = ( 10,  40, 120)
-C_SOLVED_FG    = ( 30,  30,  30)
-C_CAND_FG      = (120, 120, 120)
-C_ELIM_CAND    = (220,  60,  60)
-C_PLACE_BG     = (160, 240, 160)
-C_ELIM_BG      = (255, 220, 180)
-C_HOUSE_BG     = (255, 252, 200)
-C_SELECTED     = (190, 220, 255)
-C_CONFLICT_BG  = (255, 155, 155)   # cell involved in a rule violation
-C_GRID_THIN    = ( 80,  80,  80)
-C_GRID_THICK   = ( 20,  20,  20)
-C_PANEL_BG     = (255, 255, 255)
-C_PANEL_LINE   = (200, 200, 200)
-C_BTN          = ( 70, 130, 180)
-C_BTN_HOVER    = (100, 160, 210)
-C_BTN_ON       = ( 60, 150,  60)
-C_BTN_ON_HOV   = ( 80, 180,  80)
-C_BTN_DANGER   = (180,  60,  60)
-C_BTN_DANGER_H = (210,  80,  80)
-C_BTN_TEXT     = (255, 255, 255)
-C_WARN         = (200,  60,  60)
-C_OK           = (  0, 140,  60)
-C_ACCENT       = (180,  80,   0)
-C_BRUTE_FG     = (120,  50, 180)   # purple — brute-forced digits
-C_PEER_BG      = (228, 234, 245)   # subtle blue tint — cells sharing house with selection
-C_PATTERN_BG   = (180, 235, 255)   # light cyan — strategy-defining (pattern) cells
+GRID_X      = MARGIN
+GRID_Y      = MARGIN
+PANEL_X     = GRID_X + GRID_PX + MARGIN          # 608
+TIMELINE_Y  = GRID_Y + GRID_PX + MARGIN          # 608
+BTN_Y       = TIMELINE_Y + TIMELINE_H + 8        # 628
+WIN_W       = PANEL_X + PANEL_W + MARGIN          # 944
+WIN_H       = BTN_Y + BTN_H + MARGIN              # 680
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Strategy → tier mapping
-# ─────────────────────────────────────────────────────────────────────────────
+SUBCELL_W   = CELL_SIZE // 3
+SUBCELL_H   = CELL_SIZE // 3
+PANEL_SURF_H = 1400
 
-STRATEGY_TIER: dict[str, int] = {
-    "Full House":         1,
-    "Naked Single":       1,
-    "Hidden Single":      1,
-    "Naked Pair":         2,
-    "Hidden Pair":        2,
-    "Naked Triple":       2,
-    "Hidden Triple":      2,
-    "Naked Quad":         2,
-    "Hidden Quad":        2,
-    "Pointing Pairs":     2,
-    "Box-Line Reduction": 2,
-    "X-Wing":             3,
-    "Swordfish":          3,
-    "Y-Wing":             3,
-    "XYZ-Wing":           3,
-    "Simple Coloring":    3,
-    "Unique Rectangle":   4,
-    "W-Wing":             4,
-    "Skyscraper":         4,
-    "2-String Kite":      4,
-    "BUG+1":              4,
+# ── Colour palettes ───────────────────────────────────────────────────────────
+LIGHT: dict = {
+    "bg":           (240, 240, 235),
+    "given_bg":     (215, 228, 248),
+    "given_fg":     ( 10,  40, 120),
+    "solved_fg":    ( 30,  30,  30),
+    "cand_fg":      (120, 120, 120),
+    "elim_cand":    (220,  60,  60),
+    "place_bg":     (160, 240, 160),
+    "elim_bg":      (255, 220, 180),
+    "pattern_bg":   (180, 235, 255),
+    "house_bg":     (255, 252, 200),
+    "selected":     (190, 220, 255),
+    "peer_bg":      (228, 234, 245),
+    "conflict_bg":  (255, 155, 155),
+    "filter_hi":    (255, 248, 190),
+    "filter_dim":   (210, 208, 200),
+    "grid_thin":    ( 80,  80,  80),
+    "grid_thick":   ( 20,  20,  20),
+    "panel_bg":     (255, 255, 255),
+    "panel_line":   (200, 200, 200),
+    "btn":          ( 70, 130, 180),
+    "btn_hover":    (100, 160, 210),
+    "btn_on":       ( 60, 150,  60),
+    "btn_on_hov":   ( 80, 180,  80),
+    "btn_danger":   (180,  60,  60),
+    "btn_danger_h": (210,  80,  80),
+    "btn_text":     (255, 255, 255),
+    "warn":         (200,  60,  60),
+    "ok":           (  0, 140,  60),
+    "accent":       (180,  80,   0),
+    "brute_fg":     (120,  50, 180),
+    "play_fg":      (  0, 130,  80),
+    "play_err":     (200,  30,  30),
+    "hint_bg":      (255, 255, 210),
+    "timeline_bg":  (210, 210, 205),
+    "timeline_fg":  ( 70, 130, 180),
+    "scrollbar":    (150, 150, 150),
+    "strategy_fg":  ( 60, 100, 180),
+}
+DARK: dict = {
+    "bg":           ( 28,  28,  32),
+    "given_bg":     ( 38,  52,  88),
+    "given_fg":     (140, 170, 255),
+    "solved_fg":    (220, 220, 220),
+    "cand_fg":      (130, 130, 145),
+    "elim_cand":    (255,  80,  80),
+    "place_bg":     ( 35, 105,  45),
+    "elim_bg":      (120,  75,  20),
+    "pattern_bg":   ( 25,  85, 125),
+    "house_bg":     ( 85,  80,  25),
+    "selected":     ( 45,  75, 145),
+    "peer_bg":      ( 42,  52,  72),
+    "conflict_bg":  (120,  28,  28),
+    "filter_hi":    ( 75,  70,  25),
+    "filter_dim":   ( 38,  38,  42),
+    "grid_thin":    ( 90,  90,  95),
+    "grid_thick":   (185, 185, 185),
+    "panel_bg":     ( 36,  36,  42),
+    "panel_line":   ( 68,  68,  80),
+    "btn":          ( 45,  88, 138),
+    "btn_hover":    ( 65, 118, 168),
+    "btn_on":       ( 28, 108,  42),
+    "btn_on_hov":   ( 40, 138,  58),
+    "btn_danger":   (135,  38,  38),
+    "btn_danger_h": (165,  58,  58),
+    "btn_text":     (228, 228, 228),
+    "warn":         (255,  80,  80),
+    "ok":           ( 45, 195,  75),
+    "accent":       (215, 128,  38),
+    "brute_fg":     (175, 115, 255),
+    "play_fg":      ( 45, 195, 115),
+    "play_err":     (255,  70,  70),
+    "hint_bg":      ( 55,  55,  18),
+    "timeline_bg":  ( 52,  52,  58),
+    "timeline_fg":  ( 55, 125, 195),
+    "scrollbar":    ( 95,  95, 108),
+    "strategy_fg":  ( 90, 145, 230),
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Button bar definition
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Strategy tier ─────────────────────────────────────────────────────────────
+STRATEGY_TIER: dict[str, int] = {
+    "Full House": 1, "Naked Single": 1, "Hidden Single": 1,
+    "Naked Pair": 2, "Hidden Pair": 2, "Naked Triple": 2,
+    "Hidden Triple": 2, "Naked Quad": 2, "Hidden Quad": 2,
+    "Pointing Pairs": 2, "Box-Line Reduction": 2,
+    "X-Wing": 3, "Swordfish": 3, "Y-Wing": 3, "XYZ-Wing": 3,
+    "Simple Coloring": 3,
+    "Unique Rectangle": 4, "W-Wing": 4, "Skyscraper": 4,
+    "2-String Kite": 4, "BUG+1": 4,
+    "Finned X-Wing": 5, "XY-Chain": 5,
+}
 
+# ── Button bar ────────────────────────────────────────────────────────────────
 BUTTONS = [
-    {"id": "prev",  "label": "< PREV"},
-    {"id": "next",  "label": "NEXT >"},
-    {"id": "auto",  "label": "> AUTO",  "toggle": True},
-    {"id": "reset", "label": "RESET"},
-    {"id": "cands", "label": "CANDS",   "toggle": True},
-    {"id": "input", "label": "INPUT",   "toggle": True},
-    {"id": "clear", "label": "CLEAR",   "danger": True},
-    {"id": "save",  "label": "SAVE"},
-    {"id": "load",  "label": "LOAD"},
+    {"id": "prev",   "label": "< PREV"},
+    {"id": "next",   "label": "NEXT >"},
+    {"id": "auto",   "label": "> AUTO",  "toggle": True},
+    {"id": "reset",  "label": "RESET"},
+    {"id": "cands",  "label": "CANDS",   "toggle": True},
+    {"id": "input",  "label": "INPUT",   "toggle": True},
+    {"id": "play",   "label": "PLAY",    "toggle": True},
+    {"id": "puzzle", "label": "PUZZLE"},
+    {"id": "load",   "label": "LOAD"},
+    {"id": "save",   "label": "SAVE"},
 ]
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Brute-force backtracking solver
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ── Backtracking solver ───────────────────────────────────────────────────────
 def _bt_candidates(grid: list[list[int]], r: int, c: int) -> set[int]:
     used: set[int] = set()
     for cc in range(9): used.add(grid[r][cc])
@@ -149,19 +203,17 @@ def _bt_candidates(grid: list[list[int]], r: int, c: int) -> set[int]:
     br, bc = (r // 3) * 3, (c // 3) * 3
     for dr in range(3):
         for dc in range(3):
-            used.add(grid[br + dr][bc + dc])
+            used.add(grid[br+dr][bc+dc])
     return set(range(1, 10)) - used
 
-
 def _bt_solve(grid: list[list[int]]) -> list[list[int]] | None:
-    """Backtracking solver with MRV heuristic. Returns solved grid or None."""
     best_r, best_c, best_cands = -1, -1, None
     for r in range(9):
         for c in range(9):
             if grid[r][c] == 0:
                 cands = _bt_candidates(grid, r, c)
                 if not cands:
-                    return None   # dead end
+                    return None
                 if best_cands is None or len(cands) < len(best_cands):
                     best_r, best_c, best_cands = r, c, cands
                     if len(best_cands) == 1:
@@ -169,7 +221,7 @@ def _bt_solve(grid: list[list[int]]) -> list[list[int]] | None:
         if best_cands and len(best_cands) == 1:
             break
     if best_r == -1:
-        return grid   # all cells filled → solved
+        return grid
     for d in sorted(best_cands):   # type: ignore[arg-type]
         grid[best_r][best_c] = d
         result = _bt_solve([row[:] for row in grid])
@@ -178,63 +230,40 @@ def _bt_solve(grid: list[list[int]]) -> list[list[int]] | None:
         grid[best_r][best_c] = 0
     return None
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Board validation
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ── Board validation ──────────────────────────────────────────────────────────
 def validate_board(values: list[list[int]]) -> set[tuple[int, int]]:
-    """
-    Return the set of cells that violate Sudoku rules (duplicate digit in a
-    row, column, or box).  An empty set means the board is consistent.
-    """
     conflicts: set[tuple[int, int]] = set()
-
-    # Rows
     for r in range(9):
         seen: dict[int, int] = {}
         for c in range(9):
             v = values[r][c]
             if v:
                 if v in seen:
-                    conflicts.add((r, c))
-                    conflicts.add((r, seen[v]))
+                    conflicts.add((r, c)); conflicts.add((r, seen[v]))
                 else:
                     seen[v] = c
-
-    # Columns
     for c in range(9):
         seen = {}
         for r in range(9):
             v = values[r][c]
             if v:
                 if v in seen:
-                    conflicts.add((r, c))
-                    conflicts.add((seen[v], c))
+                    conflicts.add((r, c)); conflicts.add((seen[v], c))
                 else:
                     seen[v] = r
-
-    # Boxes
     for box in range(9):
         seen_cell: dict[int, tuple[int, int]] = {}
         for r, c in Grid.cells_of_box(box):
             v = values[r][c]
             if v:
                 if v in seen_cell:
-                    conflicts.add((r, c))
-                    conflicts.add(seen_cell[v])
+                    conflicts.add((r, c)); conflicts.add(seen_cell[v])
                 else:
                     seen_cell[v] = (r, c)
-
     return conflicts
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Font loader
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ── Font loader ───────────────────────────────────────────────────────────────
 def _load_fonts() -> dict:
-    """Try common monospace fonts, fall back to pygame default."""
     mono_names = ["menlo", "couriernew", "andalemono", "dejavusansmono", "monospace"]
     mono = None
     for name in mono_names:
@@ -242,19 +271,22 @@ def _load_fonts() -> dict:
         if f:
             mono = f
             break
-
-    def make(size, bold=False):
-        if mono:
-            return pygame.font.Font(mono, size)
-        return pygame.font.Font(None, size + 6)
-
+    def make(size):
+        return pygame.font.Font(mono, size) if mono else pygame.font.Font(None, size+6)
     return {
-        "digit":       make(34, bold=True),
+        "digit":       make(34),
         "cand":        make(13),
-        "panel_title": make(18, bold=True),
+        "panel_title": make(17),
         "panel_body":  make(13),
-        "btn":         make(14, bold=True),
+        "btn":         make(13),
+        "small":       make(11),
     }
+
+# ── Rate puzzle difficulty ────────────────────────────────────────────────────
+def rate_puzzle(steps: list[Step]) -> int:
+    if not steps:
+        return 0
+    return max(STRATEGY_TIER.get(s.strategy, 0) for s in steps)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -268,74 +300,90 @@ class SudokuApp:
         pygame.init()
         self.screen = pygame.display.set_mode((WIN_W, WIN_H))
         pygame.display.set_caption("Sudoku Tutor")
-        self.clock = pygame.time.Clock()
-        self.fonts = _load_fonts()
+        self.clock  = pygame.time.Clock()
+        self.fonts  = _load_fonts()
+
+        cfg = load_config()
 
         # ── Solver state ──────────────────────────────────────────────────────
-        self.initial_values: list[list[int]] = []
-        self.grid_states:    list[Grid]      = []   # len = len(steps) + 1
-        self.steps:          list[Step]      = []
-        self.step_idx:       int             = 0
-        self.highlight:      dict            = {}   # (r,c) → "place"/"elim"/"house"
-        self.elim_set:       set             = set()
-        self.conflict_cells: set             = set()   # (r,c) pairs with rule violations
-        self.show_candidates: bool           = True
-        self.auto_play:      bool            = False
-        self.auto_interval:  int             = 1000
-        self.auto_timer:     int             = 0
-        self.stuck:          bool            = False
-        self.brute_force_grid: list[list[int]] | None = None   # set after brute force
+        self.initial_values:  list[list[int]] = []
+        self.grid_states:     list[Grid]      = []
+        self.steps:           list[Step]      = []
+        self.step_idx:        int             = 0
+        self.highlight:       dict            = {}
+        self.elim_set:        set             = set()
+        self.conflict_cells:  set             = set()
+        self.show_candidates: bool            = cfg.get("show_candidates", True)
+        self.auto_play:       bool            = False
+        self.auto_interval:   int             = cfg.get("auto_interval", 1000)
+        self.auto_timer:      int             = 0
+        self.stuck:           bool            = False
+        self.difficulty:      int             = 0       # max tier used
+        self.brute_force_grid: list[list[int]] | None = None
+
+        # ── Async computation ─────────────────────────────────────────────────
+        self._computing:       bool = False
+        self._compute_ready:   bool = False   # set by thread when done
 
         # ── UI state ──────────────────────────────────────────────────────────
-        self.mode:         str              = "solve"
-        self.input_values: list[list[int]] | None = None
-        self.selected:     tuple | None    = None
-        self.panel_scroll: int             = 0   # pixels scrolled down in info panel
+        self.dark_mode:       bool            = cfg.get("dark_mode", False)
+        self.mode:            str             = "solve"   # solve | input | play
+        self.input_values:    list[list[int]] | None = None
+        self.input_history:   list            = []    # for undo
+        self.input_future:    list            = []    # for redo
+        self.selected:        tuple | None    = None
+        self.panel_scroll:    int             = 0
+        self.filter_digit:    int             = 0     # 0=off, 1-9=filter
+
+        # pencilmark overrides: user_cands[(r,c)] = set of toggled digits
+        self.user_cands:      dict           = {}
+
+        # ── Play mode ─────────────────────────────────────────────────────────
+        self.play_values:     list[list[int]] | None = None
+        self.play_solution:   list[list[int]] | None = None
+        self.hint_level:      int             = 0    # 0=none shown; advances 0→4→0
+        self.hint_step_idx:   int             = -1   # which step hint refers to
 
         self.btn_rects: dict = {}
         self._compute_btn_rects()
 
-        if puzzle_file:
-            vals = read_puzzle(puzzle_file)
-            if vals:
-                print(f"Loaded: {puzzle_file}")
-                self.load_puzzle(vals)
-            else:
-                print(f"Could not read '{puzzle_file}', using default puzzle.")
-                self.load_puzzle(DEFAULT_PUZZLE)
+        # ── Load puzzle ───────────────────────────────────────────────────────
+        source = puzzle_file or cfg.get("last_puzzle", "sd0.txt")
+        vals = read_puzzle(source) if source else None
+        if vals:
+            print(f"Loaded: {source}")
+            self.load_puzzle(vals)
         else:
-            vals = read_puzzle("sd0.txt")
-            if vals:
-                print("Loaded: sd0.txt")
-                self.load_puzzle(vals)
-            else:
-                print("Using built-in default puzzle.")
-                self.load_puzzle(DEFAULT_PUZZLE)
+            print("Using built-in default puzzle.")
+            self.load_puzzle(DEFAULT_PUZZLE)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Palette shortcut
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @property
+    def p(self) -> dict:
+        return DARK if self.dark_mode else LIGHT
 
     # ──────────────────────────────────────────────────────────────────────────
     # Layout helpers
     # ──────────────────────────────────────────────────────────────────────────
 
     def _compute_btn_rects(self):
-        n = len(BUTTONS)
-        available = WIN_W - 2 * MARGIN
-        gap = 4
-        btn_w = (available - gap * (n - 1)) // n
+        n   = len(BUTTONS)
+        avail = WIN_W - 2 * MARGIN
+        gap   = 4
+        btn_w = (avail - gap * (n - 1)) // n
         x = MARGIN
         for btn in BUTTONS:
             self.btn_rects[btn["id"]] = pygame.Rect(x, BTN_Y, btn_w, BTN_H)
             x += btn_w + gap
 
     def _cell_rect(self, r: int, c: int) -> pygame.Rect:
-        return pygame.Rect(
-            GRID_X + c * CELL_SIZE,
-            GRID_Y + r * CELL_SIZE,
-            CELL_SIZE,
-            CELL_SIZE,
-        )
+        return pygame.Rect(GRID_X + c * CELL_SIZE, GRID_Y + r * CELL_SIZE,
+                           CELL_SIZE, CELL_SIZE)
 
     def _is_peer_of_selected(self, r: int, c: int) -> bool:
-        """Return True if (r,c) shares a row, column, or box with the selected cell."""
         if self.selected is None:
             return False
         sr, sc = self.selected
@@ -344,72 +392,90 @@ class SudokuApp:
         return r == sr or c == sc or Grid.box_of(r, c) == Grid.box_of(sr, sc)
 
     # ──────────────────────────────────────────────────────────────────────────
-    # Puzzle loading & step computation
+    # Puzzle loading / step computation
     # ──────────────────────────────────────────────────────────────────────────
 
     def load_puzzle(self, values: list[list[int]]):
         self.initial_values = [row[:] for row in values]
-        self.compute_all_steps()
-        self.go_to_step(0)
+        self.user_cands     = {}
+        self.compute_all_steps_async()
 
-    def compute_all_steps(self):
-        """Compute all solution steps.  Validates the board before and after
-        every step; stops with stuck=True on any rule violation."""
-        self.steps = []
-        self.stuck = False
+    def compute_all_steps_async(self):
+        """Run compute_all_steps in a background thread."""
+        self.steps        = []
+        self.grid_states  = []
+        self.stuck        = False
+        self.difficulty   = 0
+        self._computing   = True
+        self._compute_ready = False
+        self.brute_force_grid = None
+        self.conflict_cells   = set()
+        self.highlight    = {}
+        self.elim_set     = set()
+        self.step_idx     = 0
+        self.panel_scroll = 0
+        t = threading.Thread(target=self._compute_worker, daemon=True)
+        t.start()
 
-        # ── Validate initial puzzle ───────────────────────────────────────────
+    def _compute_worker(self):
+        """Run in background thread: compute all steps, set flag when done."""
+        steps: list[Step] = []
+        stuck = False
+        grid_states: list[Grid] = []
+        conflict_cells: set = set()
+
         init_conflicts = validate_board(self.initial_values)
         if init_conflicts:
-            self.conflict_cells = init_conflicts
-            self.grid_states = [Grid(self.initial_values)]
-            self.stuck = True
-            n = len(init_conflicts)
-            print(f"Invalid puzzle: {n} cell(s) violate Sudoku rules. "
-                  "Correct them before solving.")
-            return
-
-        self.conflict_cells = set()
-        self.brute_force_grid = None
-        grid = Grid(self.initial_values)
-        self.grid_states = [deepcopy(grid)]
-
-        while not grid.is_solved():
-            step = None
-            for _, fn in ALL_STRATEGIES:
-                step = fn(grid)
-                if step:
+            conflict_cells = init_conflicts
+            grid_states    = [Grid(self.initial_values)]
+            stuck          = True
+        else:
+            grid = Grid(self.initial_values)
+            grid_states = [deepcopy(grid)]
+            while not grid.is_solved():
+                step = None
+                for _, fn in ALL_STRATEGIES:
+                    step = fn(grid)
+                    if step:
+                        break
+                if step is None:
+                    stuck = True
                     break
-            if step is None:
-                self.stuck = True
-                break
+                steps.append(step)
+                grid.apply_step(step)
+                conflicts = validate_board(grid.values)
+                if conflicts:
+                    conflict_cells = conflicts
+                    grid_states.append(deepcopy(grid))
+                    stuck = True
+                    break
+                grid_states.append(deepcopy(grid))
 
-            self.steps.append(step)
-            grid.apply_step(step)
+        self.steps           = steps
+        self.grid_states     = grid_states
+        self.stuck           = stuck
+        self.conflict_cells  = conflict_cells
+        self.difficulty      = rate_puzzle(steps)
+        self._computing      = False
+        self._compute_ready  = True
 
-            # ── Consistency check after every step ───────────────────────────
-            conflicts = validate_board(grid.values)
-            if conflicts:
-                self.conflict_cells = conflicts
-                self.grid_states.append(deepcopy(grid))
-                self.stuck = True
-                print(f"Inconsistency introduced at step {len(self.steps)}: "
-                      f"{len(conflicts)} conflicting cell(s). "
-                      "The initial puzzle may have multiple solutions or be unsolvable.")
-                break
+        msg = "STUCK" if stuck else "Solved!"
+        print(f"Computed {len(steps)} steps. {msg} Difficulty: Tier {self.difficulty}")
 
-            self.grid_states.append(deepcopy(grid))
-
-        msg = "STUCK — no further strategy found." if self.stuck else "Solved!"
-        print(f"Computed {len(self.steps)} steps. {msg}")
+    def _check_compute_ready(self):
+        """Call from main loop; applies results when background thread finishes."""
+        if self._compute_ready:
+            self._compute_ready = False
+            self.go_to_step(0)
 
     # ──────────────────────────────────────────────────────────────────────────
     # Navigation
     # ──────────────────────────────────────────────────────────────────────────
 
     def go_to_step(self, idx: int):
-        self.brute_force_grid = None   # any navigation clears brute-force view
-        self.panel_scroll = 0          # reset scroll on step change
+        self.brute_force_grid = None
+        self.panel_scroll     = 0
+        self.hint_level       = 0
         self.step_idx = max(0, min(idx, len(self.steps)))
         if self.step_idx > 0:
             step = self.steps[self.step_idx - 1]
@@ -418,7 +484,6 @@ class SudokuApp:
         else:
             self.highlight = {}
             self.elim_set  = set()
-        # Re-check consistency for the now-displayed grid state
         self.conflict_cells = validate_board(
             self.grid_states[self.step_idx].values)
 
@@ -448,13 +513,16 @@ class SudokuApp:
     # ──────────────────────────────────────────────────────────────────────────
 
     def draw(self):
-        self.screen.fill(C_BG)
+        self.screen.fill(self.p["bg"])
         self.draw_grid()
         self.draw_panel()
+        self.draw_timeline()
         self.draw_buttons()
+        if self._computing:
+            self._draw_computing_overlay()
         pygame.display.flip()
 
-    # ── Grid & cells ──────────────────────────────────────────────────────────
+    # ── Grid ──────────────────────────────────────────────────────────────────
 
     def draw_grid(self):
         for r in range(9):
@@ -462,7 +530,7 @@ class SudokuApp:
                 self.draw_cell(r, c)
         for i in range(10):
             thick = (i % 3 == 0)
-            color = C_GRID_THICK if thick else C_GRID_THIN
+            color = self.p["grid_thick"] if thick else self.p["grid_thin"]
             width = 2 if thick else 1
             y = GRID_Y + i * CELL_SIZE
             pygame.draw.line(self.screen, color,
@@ -473,83 +541,122 @@ class SudokuApp:
 
     def draw_cell(self, r: int, c: int):
         rect = self._cell_rect(r, c)
+        p    = self.p
 
-        # ── Brute-force view (no highlights, no candidates) ───────────────────
+        # ── Brute-force view ─────────────────────────────────────────────────
         if self.brute_force_grid is not None and self.mode == "solve":
             last = self.grid_states[-1]
             bf_v = self.brute_force_grid[r][c]
-            bg = C_GIVEN_BG if last.givens[r][c] else C_BG
+            bg   = p["given_bg"] if last.givens[r][c] else p["bg"]
             pygame.draw.rect(self.screen, bg, rect)
             if bf_v:
-                # given = dark blue, strategy-solved = black, brute-forced = purple
-                if last.givens[r][c]:
-                    color = C_GIVEN_FG
-                elif last.values[r][c] != 0:
-                    color = C_SOLVED_FG
-                else:
-                    color = C_BRUTE_FG
+                color = (p["given_fg"] if last.givens[r][c]
+                         else p["solved_fg"] if last.values[r][c] != 0
+                         else p["brute_fg"])
                 surf = self.fonts["digit"].render(str(bf_v), True, color)
                 self.screen.blit(surf, surf.get_rect(center=rect.center))
             return
 
+        # ── Play mode ─────────────────────────────────────────────────────────
+        if self.mode == "play" and self.play_values is not None:
+            self._draw_cell_play(r, c, rect)
+            return
+
         # ── Background ────────────────────────────────────────────────────────
         if self.mode == "input":
-            # Conflict overrides everything (live feedback while typing)
             if (r, c) in self.conflict_cells:
-                bg = C_CONFLICT_BG
+                bg = p["conflict_bg"]
             elif self.selected == (r, c):
-                bg = C_SELECTED
+                bg = p["selected"]
             elif self._is_peer_of_selected(r, c):
-                bg = C_PEER_BG
+                bg = p["peer_bg"]
             elif self.input_values[r][c] != 0:   # type: ignore[index]
-                bg = C_GIVEN_BG
+                bg = p["given_bg"]
             else:
-                bg = C_BG
+                bg = p["bg"]
         else:
             grid = self.grid_states[self.step_idx]
-            # Conflict overrides step highlights so errors are always visible
             if (r, c) in self.conflict_cells:
-                bg = C_CONFLICT_BG
+                bg = p["conflict_bg"]
             else:
                 tag = self.highlight.get((r, c))
                 if tag == "place":
-                    bg = C_PLACE_BG
+                    bg = p["place_bg"]
                 elif tag == "elim":
-                    bg = C_ELIM_BG
+                    bg = p["elim_bg"]
                 elif tag == "pattern":
-                    bg = C_PATTERN_BG
+                    bg = p["pattern_bg"]
                 elif tag == "house":
-                    bg = C_HOUSE_BG
+                    bg = p["house_bg"]
                 elif self.selected == (r, c):
-                    bg = C_SELECTED
+                    bg = p["selected"]
                 elif self._is_peer_of_selected(r, c):
-                    bg = C_PEER_BG
+                    bg = p["peer_bg"]
+                elif self.filter_digit and self.mode == "solve":
+                    has_d = (grid.values[r][c] == self.filter_digit
+                             or (grid.values[r][c] == 0
+                                 and self.filter_digit in grid.candidates[r][c]))
+                    bg = p["filter_hi"] if has_d else p["filter_dim"]
                 elif grid.givens[r][c]:
-                    bg = C_GIVEN_BG
+                    bg = p["given_bg"]
                 else:
-                    bg = C_BG
+                    bg = p["bg"]
 
         pygame.draw.rect(self.screen, bg, rect)
 
         # ── Content ───────────────────────────────────────────────────────────
         if self.mode == "input":
             v = self.input_values[r][c]   # type: ignore[index]
-            if v != 0:
-                surf = self.fonts["digit"].render(str(v), True, C_GIVEN_FG)
+            if v:
+                surf = self.fonts["digit"].render(str(v), True, p["given_fg"])
                 self.screen.blit(surf, surf.get_rect(center=rect.center))
         else:
             grid = self.grid_states[self.step_idx]
             v = grid.values[r][c]
-            if v != 0:
-                color = C_GIVEN_FG if grid.givens[r][c] else C_SOLVED_FG
+            if v:
+                color = p["given_fg"] if grid.givens[r][c] else p["solved_fg"]
                 surf = self.fonts["digit"].render(str(v), True, color)
                 self.screen.blit(surf, surf.get_rect(center=rect.center))
             elif self.show_candidates:
-                self.draw_candidates(r, c, rect)
+                self.draw_candidates(r, c, rect, grid)
 
-    def draw_candidates(self, r: int, c: int, cell_rect: pygame.Rect):
-        grid = self.grid_states[self.step_idx]
+    def _draw_cell_play(self, r: int, c: int, rect: pygame.Rect):
+        p = self.p
+        initial = Grid(self.initial_values)
+        is_given = initial.givens[r][c]
+        pv = self.play_values[r][c]        # type: ignore[index]
+
+        if self.selected == (r, c):
+            bg = p["selected"]
+        elif self._is_peer_of_selected(r, c):
+            bg = p["peer_bg"]
+        elif is_given:
+            bg = p["given_bg"]
+        elif pv:
+            sol = self.play_solution[r][c] if self.play_solution else None
+            bg = p["bg"]  # colored by correctness below
+        else:
+            bg = p["bg"]
+        pygame.draw.rect(self.screen, bg, rect)
+
+        if pv:
+            if is_given:
+                color = p["given_fg"]
+            elif self.play_solution and pv != self.play_solution[r][c]:
+                color = p["play_err"]
+            else:
+                color = p["play_fg"]
+            surf = self.fonts["digit"].render(str(pv), True, color)
+            self.screen.blit(surf, surf.get_rect(center=rect.center))
+
+    def draw_candidates(self, r: int, c: int, cell_rect: pygame.Rect,
+                        grid: Grid):
+        p = self.p
         current_cands = grid.candidates[r][c]
+        # Apply user pencilmark overrides (toggle XOR)
+        override = self.user_cands.get((r, c), set())
+        display_cands = current_cands.symmetric_difference(override)
+
         prev_cands: set = set()
         if self.step_idx > 0:
             prev_cands = self.grid_states[self.step_idx - 1].candidates[r][c]
@@ -560,260 +667,323 @@ class SudokuApp:
             cx = cell_rect.x + dc * SUBCELL_W + SUBCELL_W // 2
             cy = cell_rect.y + dr * SUBCELL_H + SUBCELL_H // 2
 
+            in_display  = d in display_cands
             in_current  = d in current_cands
             was_in_prev = d in prev_cands
             is_elim     = (r, c, d) in self.elim_set
+            is_override = d in override
 
-            if in_current:
-                surf = self.fonts["cand"].render(str(d), True, C_CAND_FG)
-                self.screen.blit(surf, surf.get_rect(centerx=cx, centery=cy))
-            elif is_elim and was_in_prev:
-                surf = self.fonts["cand"].render(str(d), True, C_ELIM_CAND)
+            if in_display or (is_elim and was_in_prev):
+                color = (p["elim_cand"] if is_elim and was_in_prev and not in_current
+                         else (p["accent"] if is_override else p["cand_fg"]))
+                surf = self.fonts["cand"].render(str(d), True, color)
                 self.screen.blit(surf, surf.get_rect(centerx=cx, centery=cy))
 
     # ── Info panel ────────────────────────────────────────────────────────────
 
     def draw_panel(self):
-        """Render the info panel onto an off-screen surface, then blit a scrolled
-        viewport onto the screen.  Mousewheel scrolls the visible area."""
         panel_view = pygame.Rect(PANEL_X, GRID_Y, PANEL_W, GRID_PX)
-        pygame.draw.rect(self.screen, C_PANEL_BG, panel_view)
-        pygame.draw.rect(self.screen, C_GRID_THIN, panel_view, 1)
+        pygame.draw.rect(self.screen, self.p["panel_bg"], panel_view)
 
-        # Off-screen surface for unlimited vertical space
         psurf = pygame.Surface((PANEL_W, PANEL_SURF_H))
-        psurf.fill(C_PANEL_BG)
+        psurf.fill(self.p["panel_bg"])
 
-        x = 10
-        y = 10
+        x, y = 10, 10
         max_w = PANEL_W - 20
 
-        surf = self.fonts["panel_title"].render("SUDOKU TUTOR", True, C_GIVEN_FG)
+        # Title
+        tier_str = f"  Tier {self.difficulty}" if self.difficulty else ""
+        title = "SUDOKU TUTOR" + tier_str
+        surf = self.fonts["panel_title"].render(title, True, self.p["given_fg"])
         psurf.blit(surf, (x, y))
         y += surf.get_height() + 6
-        pygame.draw.line(psurf, C_PANEL_LINE, (6, y), (PANEL_W - 6, y), 1)
+        pygame.draw.line(psurf, self.p["panel_line"], (6, y), (PANEL_W-6, y), 1)
         y += 8
 
         if self.mode == "input":
-            y = self._draw_panel_input_mode(psurf, x, y, max_w)
+            y = self._panel_input(psurf, x, y, max_w)
+        elif self.mode == "play":
+            y = self._panel_play(psurf, x, y, max_w)
         else:
-            y = self._draw_panel_solve_mode(psurf, x, y, max_w)
+            y = self._panel_solve(psurf, x, y, max_w)
 
-        # Clamp scroll so content doesn't scroll past bottom or above top
-        content_h = max(y + 10, GRID_PX)
+        # Scroll clamping
+        content_h  = max(y + 10, GRID_PX)
         max_scroll = max(0, content_h - GRID_PX)
         self.panel_scroll = max(0, min(self.panel_scroll, max_scroll))
 
-        # Blit the scrolled viewport
         viewport = pygame.Rect(0, self.panel_scroll, PANEL_W, GRID_PX)
         self.screen.blit(psurf, (PANEL_X, GRID_Y), viewport)
-        pygame.draw.rect(self.screen, C_GRID_THIN, panel_view, 1)  # re-draw border on top
+        pygame.draw.rect(self.screen, self.p["grid_thin"], panel_view, 1)
 
-        # Scrollbar indicator (only if content overflows)
+        # Scrollbar
         if max_scroll > 0:
-            bar_track_h = GRID_PX - 4
-            bar_h = max(20, int(bar_track_h * GRID_PX / content_h))
-            bar_y = GRID_Y + 2 + int((bar_track_h - bar_h) * self.panel_scroll / max_scroll)
-            bar_x = PANEL_X + PANEL_W - 5
-            pygame.draw.rect(self.screen, C_CAND_FG,
-                             pygame.Rect(bar_x, bar_y, 3, bar_h), border_radius=2)
+            bar_track = GRID_PX - 4
+            bar_h = max(18, int(bar_track * GRID_PX / content_h))
+            bar_y = GRID_Y + 2 + int((bar_track - bar_h) * self.panel_scroll / max_scroll)
+            pygame.draw.rect(self.screen, self.p["scrollbar"],
+                             pygame.Rect(PANEL_X + PANEL_W - 5, bar_y, 3, bar_h),
+                             border_radius=2)
 
-    def _draw_panel_solve_mode(self, psurf: pygame.Surface, x: int, y: int, max_w: int) -> int:
-        """Draw solve-mode content onto psurf; return the final y position."""
-        # ── Brute-force result ────────────────────────────────────────────────
+        # Hint overlay on top
+        if self.hint_level > 0 and self.mode == "solve":
+            self._draw_hint_overlay()
+
+    def _panel_solve(self, s: pygame.Surface, x: int, y: int, max_w: int) -> int:
+        p = self.p
+
+        if self._computing:
+            surf = self.fonts["panel_body"].render("Computing steps…", True, p["accent"])
+            s.blit(surf, (x, y))
+            return y + surf.get_height() + 4
+
         if self.brute_force_grid is not None:
-            surf = self.fonts["panel_title"].render("BRUTE FORCE", True, C_BRUTE_FG)
-            psurf.blit(surf, (x, y))
-            y += surf.get_height() + 6
-            for line in (
-                "Puzzle solved by backtracking.",
-                "",
-                "Purple digits were filled by",
-                "the brute-force algorithm.",
-                "",
-                "No step-by-step explanation",
-                "is available for these cells.",
-                "",
-                "Press PREV to go back to the",
-                "last human-strategy step.",
-            ):
+            surf = self.fonts["panel_title"].render("BRUTE FORCE", True, p["brute_fg"])
+            s.blit(surf, (x, y)); y += surf.get_height() + 6
+            for line in ("Puzzle solved by backtracking.", "",
+                         "Purple digits = brute-forced.", "",
+                         "Press PREV to return."):
                 if not line:
-                    y += 4
-                    continue
-                surf = self.fonts["panel_body"].render(line, True, C_SOLVED_FG)
-                psurf.blit(surf, (x, y))
-                y += surf.get_height() + 2
+                    y += 4; continue
+                surf = self.fonts["panel_body"].render(line, True, p["solved_fg"])
+                s.blit(surf, (x, y)); y += surf.get_height() + 2
             return y
 
         total = len(self.steps)
+        diff_label = f"  (Tier {self.difficulty})" if self.difficulty else ""
         surf = self.fonts["panel_body"].render(
-            f"Step {self.step_idx} / {total}", True, C_SOLVED_FG)
-        psurf.blit(surf, (x, y))
-        y += surf.get_height() + 6
+            f"Step {self.step_idx} / {total}{diff_label}", True, p["solved_fg"])
+        s.blit(surf, (x, y)); y += surf.get_height() + 6
 
-        # Show board conflict error
         if self.conflict_cells:
             n = len(self.conflict_cells)
             surf = self.fonts["panel_body"].render(
-                f"CONFLICT: {n} cell(s) violate rules!", True, C_WARN)
-            psurf.blit(surf, (x, y))
-            y += surf.get_height() + 4
+                f"CONFLICT: {n} cell(s) violate rules!", True, p["warn"])
+            s.blit(surf, (x, y)); y += surf.get_height() + 4
             if self.step_idx == 0:
                 surf = self.fonts["panel_body"].render(
-                    "Fix the puzzle in INPUT mode.", True, C_CAND_FG)
-                psurf.blit(surf, (x, y))
-                y += surf.get_height() + 2
+                    "Fix the puzzle in INPUT mode.", True, p["cand_fg"])
+                s.blit(surf, (x, y)); y += surf.get_height() + 2
             return y
 
         if self.step_idx == 0:
             if self.stuck:
                 surf = self.fonts["panel_body"].render(
-                    "STUCK! No strategy found.", True, C_WARN)
-                psurf.blit(surf, (x, y))
-                y += surf.get_height() + 6
+                    "STUCK! No strategy found.", True, p["warn"])
+                s.blit(surf, (x, y)); y += surf.get_height() + 6
                 surf = self.fonts["panel_body"].render(
-                    "Press NEXT to try brute force.", True, C_CAND_FG)
-                psurf.blit(surf, (x, y))
-                y += surf.get_height() + 2
+                    "NEXT to try brute force.", True, p["cand_fg"])
+                s.blit(surf, (x, y)); y += surf.get_height() + 2
             else:
-                for line in ("Initial puzzle.", "", "SPACE / NEXT to advance.",
-                             "C = toggle candidates"):
+                for line in ("Initial puzzle.", "", "SPACE/NEXT to advance.",
+                             "C=candidates  D=dark  H=hint",
+                             "1–9=digit filter  P=play mode"):
                     if not line:
-                        y += 4
-                        continue
-                    surf = self.fonts["panel_body"].render(line, True, C_CAND_FG)
-                    psurf.blit(surf, (x, y))
-                    y += surf.get_height() + 2
+                        y += 4; continue
+                    surf = self.fonts["panel_body"].render(line, True, p["cand_fg"])
+                    s.blit(surf, (x, y)); y += surf.get_height() + 2
             return y
 
         step = self.steps[self.step_idx - 1]
 
         if self.stuck and self.step_idx == total:
             surf = self.fonts["panel_body"].render(
-                "STUCK! No strategy found.", True, C_WARN)
-            psurf.blit(surf, (x, y))
-            y += surf.get_height() + 2
+                "STUCK! No further strategy.", True, p["warn"])
+            s.blit(surf, (x, y)); y += surf.get_height() + 2
             surf = self.fonts["panel_body"].render(
-                "Press NEXT to try brute force.", True, C_CAND_FG)
-            psurf.blit(surf, (x, y))
-            y += surf.get_height() + 6
+                "NEXT to try brute force.", True, p["cand_fg"])
+            s.blit(surf, (x, y)); y += surf.get_height() + 6
 
-        surf = self.fonts["panel_title"].render(step.strategy, True, (60, 100, 180))
-        psurf.blit(surf, (x, y))
-        y += surf.get_height() + 2
+        surf = self.fonts["panel_title"].render(step.strategy, True, p["strategy_fg"])
+        s.blit(surf, (x, y)); y += surf.get_height() + 2
 
         tier = STRATEGY_TIER.get(step.strategy, "?")
-        surf = self.fonts["panel_body"].render(f"Tier {tier}", True, C_CAND_FG)
-        psurf.blit(surf, (x, y))
-        y += surf.get_height() + 8
+        surf = self.fonts["panel_body"].render(f"Tier {tier}", True, p["cand_fg"])
+        s.blit(surf, (x, y)); y += surf.get_height() + 8
 
         if step.placements:
-            surf = self.fonts["panel_body"].render("Placed:", True, (0, 140, 0))
-            psurf.blit(surf, (x, y))
-            y += surf.get_height() + 2
+            surf = self.fonts["panel_body"].render("Placed:", True, p["ok"])
+            s.blit(surf, (x, y)); y += surf.get_height() + 2
             for r, c, d in step.placements:
                 surf = self.fonts["panel_body"].render(
-                    f"  R{r+1}C{c+1} = {d}", True, C_SOLVED_FG)
-                psurf.blit(surf, (x, y))
-                y += surf.get_height() + 1
+                    f"  R{r+1}C{c+1} = {d}", True, p["solved_fg"])
+                s.blit(surf, (x, y)); y += surf.get_height() + 1
 
         if step.eliminations:
             y += 4
-            surf = self.fonts["panel_body"].render("Eliminated:", True, C_ACCENT)
-            psurf.blit(surf, (x, y))
-            y += surf.get_height() + 2
+            surf = self.fonts["panel_body"].render("Eliminated:", True, p["accent"])
+            s.blit(surf, (x, y)); y += surf.get_height() + 2
             by_cell: dict = {}
             for r, c, d in step.eliminations:
                 by_cell.setdefault((r, c), []).append(d)
             for (r, c), ds in by_cell.items():
                 txt = f"  R{r+1}C{c+1}: {{{','.join(str(d) for d in sorted(ds))}}}"
-                surf = self.fonts["panel_body"].render(txt, True, C_SOLVED_FG)
-                psurf.blit(surf, (x, y))
-                y += surf.get_height() + 1
+                surf = self.fonts["panel_body"].render(txt, True, p["solved_fg"])
+                s.blit(surf, (x, y)); y += surf.get_height() + 1
 
         y += 8
-        pygame.draw.line(psurf, C_PANEL_LINE, (6, y), (PANEL_W - 6, y), 1)
+        pygame.draw.line(s, self.p["panel_line"], (6, y), (PANEL_W-6, y), 1)
         y += 6
-        y = self._draw_text_wrapped(psurf, step.explanation, x, y, max_w,
-                                    self.fonts["panel_body"], C_SOLVED_FG)
+        y = self._wrapped(s, step.explanation, x, y, max_w,
+                          self.fonts["panel_body"], p["solved_fg"])
         return y
 
-    def _draw_panel_input_mode(self, psurf: pygame.Surface, x: int, y: int, max_w: int) -> int:
-        surf = self.fonts["panel_body"].render("INPUT MODE", True, C_ACCENT)
-        psurf.blit(surf, (x, y))
-        y += surf.get_height() + 6
+    def _panel_input(self, s: pygame.Surface, x: int, y: int, max_w: int) -> int:
+        p = self.p
+        surf = self.fonts["panel_body"].render("INPUT MODE", True, p["accent"])
+        s.blit(surf, (x, y)); y += surf.get_height() + 6
 
-        # Live validity indicator
         if self.conflict_cells:
-            n = len(self.conflict_cells)
-            msg = f"  {n} conflict(s) — fix before solving"
-            surf = self.fonts["panel_body"].render(msg, True, C_WARN)
+            msg = f"  {len(self.conflict_cells)} conflict(s) — fix before solving"
+            surf = self.fonts["panel_body"].render(msg, True, p["warn"])
         else:
-            surf = self.fonts["panel_body"].render("  Board is valid", True, C_OK)
-        psurf.blit(surf, (x, y))
-        y += surf.get_height() + 10
+            surf = self.fonts["panel_body"].render("  Board is valid", True, p["ok"])
+        s.blit(surf, (x, y)); y += surf.get_height() + 10
+        pygame.draw.line(s, p["panel_line"], (6, y), (PANEL_W-6, y), 1); y += 8
 
-        pygame.draw.line(psurf, C_PANEL_LINE, (6, y), (PANEL_W - 6, y), 1)
-        y += 8
-
-        for text, color in [
-            ("1–9   set digit",        C_SOLVED_FG),
-            ("0 / Del   clear cell",   C_SOLVED_FG),
-            ("Arrows   move",          C_SOLVED_FG),
-            ("X   clear all cells",    C_SOLVED_FG),
-            ("Enter   solve",          C_SOLVED_FG),
-            ("ESC   cancel",           C_SOLVED_FG),
-        ]:
-            surf = self.fonts["panel_body"].render(text, True, color)
-            psurf.blit(surf, (x, y))
-            y += surf.get_height() + 3
+        for text in ["1–9   set digit", "0/Del   clear",
+                     "Arrows   move", "X   clear all",
+                     "Ctrl+Z/Y   undo/redo",
+                     "Enter   solve", "ESC   cancel"]:
+            surf = self.fonts["panel_body"].render(text, True, p["solved_fg"])
+            s.blit(surf, (x, y)); y += surf.get_height() + 3
         return y
 
-    def _draw_text_wrapped(self, target, text: str, x: int, y: int,
-                           max_w: int, font, color) -> int:
-        """Word-wrap text onto target surface (screen or off-screen). Returns final y."""
-        words = text.split()
-        line = ""
-        for word in words:
-            test = (line + " " + word).strip()
-            if font.size(test)[0] <= max_w:
-                line = test
-            else:
-                if line:
-                    surf = font.render(line, True, color)
-                    target.blit(surf, (x, y))
-                    y += surf.get_height() + 1
-                line = word
-        if line:
-            surf = font.render(line, True, color)
-            target.blit(surf, (x, y))
-            y += surf.get_height() + 1
+    def _panel_play(self, s: pygame.Surface, x: int, y: int, max_w: int) -> int:
+        p = self.p
+        surf = self.fonts["panel_title"].render("PLAY MODE", True, p["play_fg"])
+        s.blit(surf, (x, y)); y += surf.get_height() + 6
+
+        if self.play_values is not None:
+            filled  = sum(1 for r in range(9) for c in range(9)
+                          if self.play_values[r][c] != 0
+                          and not Grid(self.initial_values).givens[r][c])
+            total_e = sum(1 for r in range(9) for c in range(9)
+                          if not Grid(self.initial_values).givens[r][c])
+            surf = self.fonts["panel_body"].render(
+                f"Filled: {filled} / {total_e}", True, p["cand_fg"])
+            s.blit(surf, (x, y)); y += surf.get_height() + 8
+
+        pygame.draw.line(s, p["panel_line"], (6, y), (PANEL_W-6, y), 1); y += 8
+        for text in ["1–9   fill digit", "0/Del   erase",
+                     "Arrows   move", "H   hint",
+                     "ESC   exit play mode"]:
+            surf = self.fonts["panel_body"].render(text, True, p["solved_fg"])
+            s.blit(surf, (x, y)); y += surf.get_height() + 3
+
+        if self.hint_level > 0:
+            y += 6
+            pygame.draw.line(s, p["panel_line"], (6, y), (PANEL_W-6, y), 1); y += 6
+            surf = self.fonts["panel_body"].render(
+                f"Hint level {self.hint_level}/4:", True, p["accent"])
+            s.blit(surf, (x, y)); y += surf.get_height() + 4
+            step = self._hint_step()
+            if step:
+                hints = self._hint_texts(step)
+                for txt in hints[:self.hint_level]:
+                    y = self._wrapped(s, txt, x, y, max_w,
+                                      self.fonts["panel_body"], p["solved_fg"])
+                    y += 2
         return y
+
+    def _draw_hint_overlay(self):
+        """Draw hint box on top of the panel (for solve mode H key)."""
+        p    = self.p
+        step = self._hint_step()
+        if step is None:
+            return
+        hints = self._hint_texts(step)
+        lines = hints[:self.hint_level]
+        if not lines:
+            return
+
+        box_x = PANEL_X + 6
+        box_y = GRID_Y + GRID_PX - 120
+        box_w = PANEL_W - 12
+        box_h = 110
+
+        pygame.draw.rect(self.screen, p["hint_bg"],
+                         pygame.Rect(box_x, box_y, box_w, box_h), border_radius=5)
+        pygame.draw.rect(self.screen, p["accent"],
+                         pygame.Rect(box_x, box_y, box_w, box_h), 1, border_radius=5)
+
+        surf = self.fonts["small"].render(
+            f"Hint {self.hint_level}/4 (H=more)", True, p["accent"])
+        self.screen.blit(surf, (box_x + 6, box_y + 5))
+        y = box_y + 20
+        for txt in lines:
+            y = self._wrapped(self.screen, txt, box_x + 6, y,
+                              box_w - 12, self.fonts["small"], p["solved_fg"])
+            y += 2
+
+    def _draw_computing_overlay(self):
+        """Dimmed overlay with 'Computing…' while background thread runs."""
+        p = self.p
+        dim = pygame.Surface((GRID_PX, GRID_PX), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 80))
+        self.screen.blit(dim, (GRID_X, GRID_Y))
+        surf = self.fonts["panel_title"].render("Computing…", True, p["btn_text"])
+        r = surf.get_rect(center=(GRID_X + GRID_PX//2, GRID_Y + GRID_PX//2))
+        pygame.draw.rect(self.screen, p["btn"],
+                         r.inflate(20, 12), border_radius=6)
+        self.screen.blit(surf, r)
+
+    # ── Timeline scrubber ─────────────────────────────────────────────────────
+
+    def draw_timeline(self):
+        p = self.p
+        total = len(self.steps)
+        rect  = pygame.Rect(GRID_X, TIMELINE_Y, GRID_PX, TIMELINE_H)
+        pygame.draw.rect(self.screen, p["timeline_bg"], rect, border_radius=4)
+
+        if total > 0:
+            fill_w = int(GRID_PX * self.step_idx / total)
+            if fill_w > 0:
+                pygame.draw.rect(self.screen, p["timeline_fg"],
+                                 pygame.Rect(GRID_X, TIMELINE_Y, fill_w, TIMELINE_H),
+                                 border_radius=4)
+            # Thumb
+            tx = GRID_X + fill_w
+            thumb = pygame.Rect(tx - 4, TIMELINE_Y - 1, 8, TIMELINE_H + 2)
+            pygame.draw.rect(self.screen, p["grid_thick"], thumb, border_radius=3)
+
+        # Tick marks at box boundaries (every 3 steps if total >= 27, else just quarters)
+        if total >= 9:
+            for i in range(1, total):
+                x = GRID_X + int(GRID_PX * i / total)
+                if i % max(1, total // 9) == 0:
+                    pygame.draw.line(self.screen, p["grid_thin"],
+                                     (x, TIMELINE_Y), (x, TIMELINE_Y + TIMELINE_H), 1)
 
     # ── Button bar ────────────────────────────────────────────────────────────
 
     def draw_buttons(self):
+        p = self.p
         mouse_pos = pygame.mouse.get_pos()
         for btn in BUTTONS:
             bid   = btn["id"]
             rect  = self.btn_rects[bid]
             hover = rect.collidepoint(mouse_pos)
 
-            is_on = (bid == "auto"  and self.auto_play) or \
-                    (bid == "cands" and self.show_candidates) or \
-                    (bid == "input" and self.mode == "input")
-            is_danger = btn.get("danger", False)
+            is_on = ((bid == "auto"  and self.auto_play) or
+                     (bid == "cands" and self.show_candidates) or
+                     (bid == "input" and self.mode == "input") or
+                     (bid == "play"  and self.mode == "play"))
 
             if is_on:
-                bg = C_BTN_ON_HOV if hover else C_BTN_ON
-            elif is_danger:
-                bg = C_BTN_DANGER_H if hover else C_BTN_DANGER
+                bg = p["btn_on_hov"] if hover else p["btn_on"]
             else:
-                bg = C_BTN_HOVER if hover else C_BTN
+                bg = p["btn_hover"] if hover else p["btn"]
 
-            pygame.draw.rect(self.screen, bg, rect, border_radius=5)
-            surf = self.fonts["btn"].render(btn["label"], True, C_BTN_TEXT)
+            pygame.draw.rect(self.screen, bg, rect, border_radius=4)
+            surf = self.fonts["btn"].render(btn["label"], True, p["btn_text"])
             self.screen.blit(surf, surf.get_rect(center=rect.center))
+
+        # Filter digit indicator
+        if self.filter_digit:
+            surf = self.fonts["small"].render(
+                f"Filter: {self.filter_digit}", True, self.p["accent"])
+            self.screen.blit(surf, (PANEL_X, BTN_Y + BTN_H + 2))
 
     # ──────────────────────────────────────────────────────────────────────────
     # Event handling
@@ -826,95 +996,195 @@ class SudokuApp:
             elif event.type == pygame.KEYDOWN:
                 if not self.handle_key(event):
                     return False
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                self.handle_click(event.pos)
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:
+                    self.handle_click(event.pos)
+                elif event.button == 3:
+                    self.handle_rightclick(event.pos)
             elif event.type == pygame.MOUSEWHEEL:
-                # Only scroll when mouse is over the panel
                 mx, my = pygame.mouse.get_pos()
                 if PANEL_X <= mx < PANEL_X + PANEL_W and GRID_Y <= my < GRID_Y + GRID_PX:
                     self.panel_scroll = max(0, self.panel_scroll - event.y * 20)
         return True
 
     def handle_key(self, event) -> bool:
+        mods = pygame.key.get_mods()
+        ctrl = mods & pygame.KMOD_CTRL
+
+        # Global shortcuts
+        if event.key == pygame.K_ESCAPE and self.mode == "solve":
+            return False
+        if event.key == pygame.K_d and self.mode == "solve":
+            self.dark_mode = not self.dark_mode
+            return True
+
         if self.mode == "solve":
-            if event.key in (pygame.K_RIGHT, pygame.K_SPACE):
-                if (self.stuck and self.step_idx == len(self.steps)
-                        and self.brute_force_grid is None):
-                    self._offer_brute_force()
-                else:
-                    self.go_to_step(self.step_idx + 1)
-            elif event.key in (pygame.K_LEFT, pygame.K_BACKSPACE):
-                self.go_to_step(self.step_idx - 1)
-            elif event.key == pygame.K_a:
-                self.auto_play = not self.auto_play
-                self.auto_timer = 0
-            elif event.key == pygame.K_c:
-                self.show_candidates = not self.show_candidates
-            elif event.key == pygame.K_r:
-                self.auto_play = False
-                self.go_to_step(0)
-            elif event.key == pygame.K_i:
-                self.enter_input_mode()
-            elif event.key == pygame.K_ESCAPE:
-                return False
-
+            return self._key_solve(event, ctrl)
         elif self.mode == "input":
-            if event.key == pygame.K_ESCAPE:
-                self.exit_input_mode(solve=False)
-            elif event.key == pygame.K_RETURN:
-                self.exit_input_mode(solve=True)
-            elif event.key == pygame.K_x:
-                self._clear_all_input()
-            elif event.key in (pygame.K_DELETE, pygame.K_BACKSPACE):
-                if self.selected:
-                    r, c = self.selected
-                    self.input_values[r][c] = 0     # type: ignore[index]
-                    self._update_input_conflicts()
-            elif event.unicode in ("0",):
-                if self.selected:
-                    r, c = self.selected
-                    self.input_values[r][c] = 0     # type: ignore[index]
-                    self._update_input_conflicts()
-            elif event.unicode.isdigit() and event.unicode != "0":
-                if self.selected:
-                    r, c = self.selected
-                    self.input_values[r][c] = int(event.unicode)  # type: ignore[index]
-                    self._update_input_conflicts()
-                    # Auto-advance selection
-                    nc = c + 1
-                    nr = r
-                    if nc > 8:
-                        nc = 0
-                        nr = min(r + 1, 8)
-                    self.selected = (nr, nc)
-            elif event.key == pygame.K_UP:
-                if self.selected:
-                    r, c = self.selected
-                    self.selected = (max(0, r - 1), c)
-            elif event.key == pygame.K_DOWN:
-                if self.selected:
-                    r, c = self.selected
-                    self.selected = (min(8, r + 1), c)
-            elif event.key == pygame.K_LEFT:
-                if self.selected:
-                    r, c = self.selected
-                    self.selected = (r, max(0, c - 1))
-            elif event.key == pygame.K_RIGHT:
-                if self.selected:
-                    r, c = self.selected
-                    self.selected = (r, min(8, c + 1))
+            return self._key_input(event, ctrl)
+        elif self.mode == "play":
+            return self._key_play(event)
+        return True
 
+    def _key_solve(self, event, ctrl: bool) -> bool:
+        k = event.key
+        if k in (pygame.K_RIGHT, pygame.K_SPACE):
+            if (self.stuck and self.step_idx == len(self.steps)
+                    and self.brute_force_grid is None):
+                self._offer_brute_force()
+            else:
+                self.go_to_step(self.step_idx + 1)
+        elif k in (pygame.K_LEFT, pygame.K_BACKSPACE):
+            self.go_to_step(self.step_idx - 1)
+        elif k == pygame.K_a:
+            self.auto_play = not self.auto_play
+            self.auto_timer = 0
+        elif k == pygame.K_c:
+            self.show_candidates = not self.show_candidates
+        elif k == pygame.K_r:
+            self.auto_play = False
+            self.go_to_step(0)
+        elif k == pygame.K_i:
+            self.enter_input_mode()
+        elif k == pygame.K_p:
+            self.enter_play_mode()
+        elif k == pygame.K_h:
+            self._advance_hint()
+        elif ctrl and k == pygame.K_e:
+            self._export_png()
+        elif k == pygame.K_0:
+            self.filter_digit = 0
+        elif event.unicode.isdigit() and event.unicode != "0":
+            d = int(event.unicode)
+            self.filter_digit = d if self.filter_digit != d else 0
+        return True
+
+    def _key_input(self, event, ctrl: bool) -> bool:
+        k = event.key
+        if k == pygame.K_ESCAPE:
+            self.exit_input_mode(solve=False)
+        elif k == pygame.K_RETURN:
+            self.exit_input_mode(solve=True)
+        elif k == pygame.K_x:
+            self._clear_all_input()
+        elif ctrl and k == pygame.K_z:
+            self._undo()
+        elif ctrl and k == pygame.K_y:
+            self._redo()
+        elif k in (pygame.K_DELETE, pygame.K_BACKSPACE):
+            if self.selected:
+                self._input_push_history()
+                r, c = self.selected
+                self.input_values[r][c] = 0   # type: ignore[index]
+                self._update_input_conflicts()
+        elif event.unicode == "0":
+            if self.selected:
+                self._input_push_history()
+                r, c = self.selected
+                self.input_values[r][c] = 0   # type: ignore[index]
+                self._update_input_conflicts()
+        elif event.unicode.isdigit() and event.unicode != "0":
+            if self.selected:
+                self._input_push_history()
+                r, c = self.selected
+                self.input_values[r][c] = int(event.unicode)  # type: ignore[index]
+                self._update_input_conflicts()
+                nc = c + 1 if c < 8 else 0
+                nr = r + (1 if c == 8 and r < 8 else 0)
+                self.selected = (nr, nc)
+        elif k == pygame.K_UP:
+            if self.selected:
+                self.selected = (max(0, self.selected[0]-1), self.selected[1])
+        elif k == pygame.K_DOWN:
+            if self.selected:
+                self.selected = (min(8, self.selected[0]+1), self.selected[1])
+        elif k == pygame.K_LEFT:
+            if self.selected:
+                self.selected = (self.selected[0], max(0, self.selected[1]-1))
+        elif k == pygame.K_RIGHT:
+            if self.selected:
+                self.selected = (self.selected[0], min(8, self.selected[1]+1))
+        return True
+
+    def _key_play(self, event) -> bool:
+        k = event.key
+        if k == pygame.K_ESCAPE:
+            self.exit_play_mode()
+        elif k == pygame.K_h:
+            self._advance_hint()
+        elif k in (pygame.K_DELETE, pygame.K_BACKSPACE) or event.unicode == "0":
+            if self.selected:
+                r, c = self.selected
+                initial = Grid(self.initial_values)
+                if not initial.givens[r][c]:
+                    self.play_values[r][c] = 0   # type: ignore[index]
+        elif event.unicode.isdigit() and event.unicode != "0":
+            if self.selected:
+                r, c = self.selected
+                initial = Grid(self.initial_values)
+                if not initial.givens[r][c]:
+                    self.play_values[r][c] = int(event.unicode)  # type: ignore[index]
+                    self._check_play_complete()
+                    nc = c + 1 if c < 8 else 0
+                    nr = r + (1 if c == 8 and r < 8 else 0)
+                    self.selected = (nr, nc)
+        elif k == pygame.K_UP:
+            if self.selected:
+                self.selected = (max(0, self.selected[0]-1), self.selected[1])
+        elif k == pygame.K_DOWN:
+            if self.selected:
+                self.selected = (min(8, self.selected[0]+1), self.selected[1])
+        elif k == pygame.K_LEFT:
+            if self.selected:
+                self.selected = (self.selected[0], max(0, self.selected[1]-1))
+        elif k == pygame.K_RIGHT:
+            if self.selected:
+                self.selected = (self.selected[0], min(8, self.selected[1]+1))
         return True
 
     def handle_click(self, pos: tuple):
+        # Button bar
         for btn in BUTTONS:
             if self.btn_rects[btn["id"]].collidepoint(pos):
                 self._handle_button(btn["id"])
                 return
+        # Timeline
+        tl = pygame.Rect(GRID_X, TIMELINE_Y, GRID_PX, TIMELINE_H + 4)
+        if tl.collidepoint(pos) and len(self.steps) > 0:
+            frac = (pos[0] - GRID_X) / GRID_PX
+            self.go_to_step(round(frac * len(self.steps)))
+            return
+        # Grid
         gx = pos[0] - GRID_X
         gy = pos[1] - GRID_Y
         if 0 <= gx < GRID_PX and 0 <= gy < GRID_PX:
             self.selected = (gy // CELL_SIZE, gx // CELL_SIZE)
+
+    def handle_rightclick(self, pos: tuple):
+        """Right-click toggles pencilmark mode for a cell (solve mode only)."""
+        if self.mode != "solve" or self.brute_force_grid is not None:
+            return
+        gx = pos[0] - GRID_X
+        gy = pos[1] - GRID_Y
+        if not (0 <= gx < GRID_PX and 0 <= gy < GRID_PX):
+            return
+        r, c = gy // CELL_SIZE, gx // CELL_SIZE
+        if not self.grid_states:
+            return
+        grid = self.grid_states[self.step_idx]
+        if grid.values[r][c] != 0:
+            return   # cell already has a value
+        self.selected = (r, c)
+        # Prompt via digit filter indicator
+        d = self.filter_digit
+        if d:
+            ov = self.user_cands.setdefault((r, c), set())
+            if d in ov:
+                ov.discard(d)
+            else:
+                ov.add(d)
+            if not ov:
+                del self.user_cands[(r, c)]
 
     def _handle_button(self, bid: str):
         if bid == "prev":
@@ -938,71 +1208,174 @@ class SudokuApp:
                 self.enter_input_mode()
             else:
                 self.exit_input_mode(solve=True)
-        elif bid == "clear":
-            if self.mode == "input":
-                self._clear_all_input()
+        elif bid == "play":
+            if self.mode == "play":
+                self.exit_play_mode()
             else:
-                self.enter_input_mode()
-                self._clear_all_input()
-        elif bid == "save":
-            self._prompt_save_file()
+                self.enter_play_mode()
+        elif bid == "puzzle":
+            self._puzzle_library_dialog()
         elif bid == "load":
             self._prompt_load_file()
+        elif bid == "save":
+            self._prompt_save_file()
 
     # ──────────────────────────────────────────────────────────────────────────
     # Input mode
     # ──────────────────────────────────────────────────────────────────────────
 
     def enter_input_mode(self):
-        self.mode = "input"
+        self.mode         = "input"
         self.input_values = [row[:] for row in self.initial_values]
-        self.selected = (0, 0)
-        self.auto_play = False
+        self.input_history = []
+        self.input_future  = []
+        self.selected      = (0, 0)
+        self.auto_play     = False
         self._update_input_conflicts()
 
     def exit_input_mode(self, solve: bool = True):
         if solve and self.input_values is not None:
             if self.conflict_cells:
-                # Don't accept an invalid puzzle
-                print("Cannot solve: board has conflicts. "
-                      "Fix the highlighted cells first.")
                 return
             self.initial_values = [row[:] for row in self.input_values]
-            self.mode = "solve"
-            self.selected = None
-            self.input_values = None
-            self.compute_all_steps()
-            self.go_to_step(0)
+            self.mode           = "solve"
+            self.selected       = None
+            self.input_values   = None
+            self.input_history  = []
+            self.input_future   = []
+            self.user_cands     = {}
+            self.compute_all_steps_async()
         else:
-            self.mode = "solve"
-            self.selected = None
-            self.input_values = None
-            # Restore conflict state from the current solve-mode grid
+            self.mode          = "solve"
+            self.selected      = None
+            self.input_values  = None
             self.conflict_cells = validate_board(
                 self.grid_states[self.step_idx].values)
 
     def _clear_all_input(self):
-        """Zero all cells in input mode."""
         if self.input_values is not None:
-            self.input_values = [[0] * 9 for _ in range(9)]
+            self._input_push_history()
+            self.input_values   = [[0]*9 for _ in range(9)]
             self.conflict_cells = set()
 
     def _update_input_conflicts(self):
-        """Recompute conflicts from input_values (called after every edit)."""
         if self.input_values is not None:
             self.conflict_cells = validate_board(self.input_values)
 
+    def _input_push_history(self):
+        if self.input_values is not None:
+            self.input_history.append(
+                ([row[:] for row in self.input_values], self.selected))
+            self.input_future.clear()
+
+    def _undo(self):
+        if not self.input_history:
+            return
+        self.input_future.append(
+            ([row[:] for row in self.input_values], self.selected))   # type: ignore
+        vals, sel = self.input_history.pop()
+        self.input_values = vals
+        self.selected     = sel
+        self._update_input_conflicts()
+
+    def _redo(self):
+        if not self.input_future:
+            return
+        self.input_history.append(
+            ([row[:] for row in self.input_values], self.selected))   # type: ignore
+        vals, sel = self.input_future.pop()
+        self.input_values = vals
+        self.selected     = sel
+        self._update_input_conflicts()
+
     # ──────────────────────────────────────────────────────────────────────────
-    # Brute-force offer
+    # Play mode
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def enter_play_mode(self):
+        if self._computing:
+            return
+        self.mode       = "play"
+        self.auto_play  = False
+        self.selected   = (0, 0)
+        self.hint_level = 0
+        self.play_values = [row[:] for row in self.initial_values]
+        # Compute solution for validation
+        sol = _bt_solve([row[:] for row in self.initial_values])
+        self.play_solution = sol
+
+    def exit_play_mode(self):
+        self.mode         = "solve"
+        self.play_values  = None
+        self.play_solution= None
+        self.selected     = None
+        self.hint_level   = 0
+        self.conflict_cells = validate_board(
+            self.grid_states[self.step_idx].values)
+
+    def _check_play_complete(self):
+        if (self.play_values is not None and self.play_solution is not None
+                and self.play_values == self.play_solution):
+            self._confirm_dialog("Congratulations!",
+                                 "You solved the puzzle! Press OK to continue.")
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Progressive hint
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _hint_step(self) -> Step | None:
+        """Return the next unsolved step relevant to current display."""
+        if self.mode == "play":
+            # Find the first step whose placement or elimination isn't yet filled in
+            for step in self.steps:
+                for r, c, d in step.placements:
+                    pv = self.play_values[r][c] if self.play_values else 0
+                    if pv != d:
+                        return step
+            return self.steps[0] if self.steps else None
+        else:
+            if self.step_idx < len(self.steps):
+                return self.steps[self.step_idx]
+            return None
+
+    def _hint_texts(self, step: Step) -> list[str]:
+        """Return 4 progressively detailed hint strings for a step."""
+        house = ""
+        if step.house_type and step.house_index >= 0:
+            house = f"{step.house_type} {step.house_index+1}"
+        area = (f"Look in {house}." if house else
+                f"Check the cells near R{step.placements[0][0]+1}C{step.placements[0][1]+1}."
+                if step.placements else "Look for a pattern.")
+
+        if step.placements:
+            digit_hint = f"Focus on digit {step.placements[0][2]}."
+        elif step.eliminations:
+            digit_hint = f"Focus on digit {step.eliminations[0][2]}."
+        else:
+            digit_hint = "Look carefully at the candidates."
+
+        return [
+            area,
+            digit_hint,
+            f"Strategy: {step.strategy} (Tier {STRATEGY_TIER.get(step.strategy,'?')}).",
+            step.explanation,
+        ]
+
+    def _advance_hint(self):
+        step = self._hint_step()
+        if step is None:
+            return
+        self.hint_level = (self.hint_level % 4) + 1
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Brute force
     # ──────────────────────────────────────────────────────────────────────────
 
     def _offer_brute_force(self):
         ok = self._confirm_dialog(
-            "Solver is stuck",
-            "No human strategy applies to the remaining cells.\n\n"
-            "Run brute-force backtracking?\n"
-            "A solution will be shown but with no step-by-step explanation.",
-        )
+            "Solver stuck",
+            "No human strategy found.\n\nRun brute-force backtracking?\n"
+            "(No step-by-step explanation.)")
         if ok:
             self._run_brute_force()
 
@@ -1014,92 +1387,26 @@ class SudokuApp:
         else:
             self.brute_force_grid = result
 
-    def _confirm_dialog(self, title: str, message: str) -> bool:
-        """
-        Yes / No modal dialog.  Returns True on Yes / Enter, False on No / ESC.
-        Snapshots the screen once so there is no background flicker.
-        """
-        DW, DH = 460, 160
-        dx = (WIN_W - DW) // 2
-        dy = (WIN_H - DH) // 2
-
-        self.draw()
-        background = self.screen.copy()
-        dim = pygame.Surface((WIN_W, WIN_H), pygame.SRCALPHA)
-        dim.fill((0, 0, 0, 110))
-        background.blit(dim, (0, 0))
-
-        yes_rect = pygame.Rect(dx + DW - 94,  dy + DH - 40, 80, 28)
-        no_rect  = pygame.Rect(dx + DW - 184, dy + DH - 40, 80, 28)
-
-        while True:
-            self.clock.tick(30)
-            for ev in pygame.event.get():
-                if ev.type == pygame.QUIT:
-                    return False
-                elif ev.type == pygame.KEYDOWN:
-                    if ev.key in (pygame.K_RETURN, pygame.K_y):
-                        return True
-                    elif ev.key in (pygame.K_ESCAPE, pygame.K_n):
-                        return False
-                elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
-                    if yes_rect.collidepoint(ev.pos):
-                        return True
-                    if no_rect.collidepoint(ev.pos):
-                        return False
-
-            self.screen.blit(background, (0, 0))
-            box_rect = pygame.Rect(dx, dy, DW, DH)
-            pygame.draw.rect(self.screen, C_PANEL_BG, box_rect, border_radius=6)
-            pygame.draw.rect(self.screen, C_GRID_THICK, box_rect, 2, border_radius=6)
-
-            surf = self.fonts["panel_title"].render(title, True, C_GIVEN_FG)
-            self.screen.blit(surf, (dx + 14, dy + 10))
-
-            self._draw_text_wrapped(self.screen, message, dx + 14, dy + 38,
-                                    DW - 28, self.fonts["panel_body"], C_SOLVED_FG)
-
-            mouse = pygame.mouse.get_pos()
-            for rect, label, base in (
-                (yes_rect, "Yes", C_BTN_ON),
-                (no_rect,  "No",  C_BTN),
-            ):
-                r, g, b = base
-                bg = (min(r+20,255), min(g+20,255), min(b+20,255)) \
-                     if rect.collidepoint(mouse) else base
-                pygame.draw.rect(self.screen, bg, rect, border_radius=4)
-                s = self.fonts["btn"].render(label, True, C_BTN_TEXT)
-                self.screen.blit(s, s.get_rect(center=rect.center))
-
-            pygame.display.flip()
-
     # ──────────────────────────────────────────────────────────────────────────
-    # File I/O — in-GUI dialogs
+    # File I/O dialogs
     # ──────────────────────────────────────────────────────────────────────────
 
     def _text_dialog(self, title: str, default: str = "") -> str | None:
-        """
-        Modal text-input overlay rendered entirely inside the pygame window.
-        Snapshots the current frame once so nothing underneath redraws (no flicker).
-        Returns the trimmed string on Enter / OK, or None on ESC / Cancel.
-        """
         DW, DH = 480, 130
         dx = (WIN_W - DW) // 2
         dy = (WIN_H - DH) // 2
 
-        # Capture the current screen once — used as static background
         self.draw()
         background = self.screen.copy()
         dim = pygame.Surface((WIN_W, WIN_H), pygame.SRCALPHA)
         dim.fill((0, 0, 0, 110))
         background.blit(dim, (0, 0))
 
-        text = default
+        text      = default
         cursor_on = True
         cursor_ms = 0
-
-        ok_rect     = pygame.Rect(dx + DW - 92,  dy + DH - 40, 80, 28)
-        cancel_rect = pygame.Rect(dx + DW - 182, dy + DH - 40, 80, 28)
+        ok_r      = pygame.Rect(dx + DW - 92,  dy + DH - 40, 80, 28)
+        cancel_r  = pygame.Rect(dx + DW - 182, dy + DH - 40, 80, 28)
 
         while True:
             dt = self.clock.tick(30)
@@ -1121,53 +1428,101 @@ class SudokuApp:
                     elif ev.unicode and ev.unicode.isprintable():
                         text += ev.unicode
                 elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
-                    if ok_rect.collidepoint(ev.pos):
+                    if ok_r.collidepoint(ev.pos):
                         return text.strip() or None
-                    elif cancel_rect.collidepoint(ev.pos):
+                    elif cancel_r.collidepoint(ev.pos):
                         return None
 
-            # Blit static background (no full redraw each frame)
             self.screen.blit(background, (0, 0))
+            p = self.p
+            box = pygame.Rect(dx, dy, DW, DH)
+            pygame.draw.rect(self.screen, p["panel_bg"], box, border_radius=6)
+            pygame.draw.rect(self.screen, p["grid_thick"], box, 2, border_radius=6)
 
-            # Dialog box
-            box_rect = pygame.Rect(dx, dy, DW, DH)
-            pygame.draw.rect(self.screen, C_PANEL_BG, box_rect, border_radius=6)
-            pygame.draw.rect(self.screen, C_GRID_THICK, box_rect, 2, border_radius=6)
-
-            # Title
-            surf = self.fonts["panel_title"].render(title, True, C_GIVEN_FG)
+            surf = self.fonts["panel_title"].render(title, True, p["given_fg"])
             self.screen.blit(surf, (dx + 14, dy + 10))
 
-            # Text field
-            field_rect = pygame.Rect(dx + 14, dy + 40, DW - 28, 30)
-            pygame.draw.rect(self.screen, (255, 255, 255), field_rect)
-            pygame.draw.rect(self.screen, C_GRID_THIN, field_rect, 1)
+            fr = pygame.Rect(dx + 14, dy + 40, DW - 28, 30)
+            pygame.draw.rect(self.screen, p["panel_bg"], fr)
+            pygame.draw.rect(self.screen, p["grid_thin"], fr, 1)
 
-            font = self.fonts["panel_body"]
-            display = text
-            while display and font.size(display)[0] > field_rect.width - 10:
-                display = display[1:]
-            surf = font.render(display, True, C_SOLVED_FG)
-            self.screen.blit(surf, (field_rect.x + 5, field_rect.y + 7))
+            font  = self.fonts["panel_body"]
+            disp  = text
+            while disp and font.size(disp)[0] > fr.width - 10:
+                disp = disp[1:]
+            surf = font.render(disp, True, p["solved_fg"])
+            self.screen.blit(surf, (fr.x + 5, fr.y + 7))
             if cursor_on:
-                cx = field_rect.x + 5 + font.size(display)[0]
-                pygame.draw.line(self.screen, C_SOLVED_FG,
-                                 (cx, field_rect.y + 5), (cx, field_rect.y + 25), 1)
+                cx = fr.x + 5 + font.size(disp)[0]
+                pygame.draw.line(self.screen, p["solved_fg"],
+                                 (cx, fr.y + 5), (cx, fr.y + 25), 1)
 
-            # Buttons
             mouse = pygame.mouse.get_pos()
-            for rect, label in ((ok_rect, "OK"), (cancel_rect, "Cancel")):
-                bg = C_BTN_HOVER if rect.collidepoint(mouse) else C_BTN
+            for rect, label in ((ok_r, "OK"), (cancel_r, "Cancel")):
+                bg = p["btn_hover"] if rect.collidepoint(mouse) else p["btn"]
                 pygame.draw.rect(self.screen, bg, rect, border_radius=4)
-                s = self.fonts["btn"].render(label, True, C_BTN_TEXT)
+                s = self.fonts["btn"].render(label, True, p["btn_text"])
+                self.screen.blit(s, s.get_rect(center=rect.center))
+
+            pygame.display.flip()
+
+    def _confirm_dialog(self, title: str, message: str) -> bool:
+        DW, DH = 460, 160
+        dx = (WIN_W - DW) // 2
+        dy = (WIN_H - DH) // 2
+
+        self.draw()
+        background = self.screen.copy()
+        dim = pygame.Surface((WIN_W, WIN_H), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 110))
+        background.blit(dim, (0, 0))
+
+        yes_r = pygame.Rect(dx + DW - 94,  dy + DH - 40, 80, 28)
+        no_r  = pygame.Rect(dx + DW - 184, dy + DH - 40, 80, 28)
+
+        while True:
+            self.clock.tick(30)
+            for ev in pygame.event.get():
+                if ev.type == pygame.QUIT:
+                    return False
+                elif ev.type == pygame.KEYDOWN:
+                    if ev.key in (pygame.K_RETURN, pygame.K_y):
+                        return True
+                    elif ev.key in (pygame.K_ESCAPE, pygame.K_n):
+                        return False
+                elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
+                    if yes_r.collidepoint(ev.pos):
+                        return True
+                    if no_r.collidepoint(ev.pos):
+                        return False
+
+            p = self.p
+            self.screen.blit(background, (0, 0))
+            box = pygame.Rect(dx, dy, DW, DH)
+            pygame.draw.rect(self.screen, p["panel_bg"], box, border_radius=6)
+            pygame.draw.rect(self.screen, p["grid_thick"], box, 2, border_radius=6)
+
+            surf = self.fonts["panel_title"].render(title, True, p["given_fg"])
+            self.screen.blit(surf, (dx + 14, dy + 10))
+            self._wrapped(self.screen, message, dx + 14, dy + 38,
+                          DW - 28, self.fonts["panel_body"], p["solved_fg"])
+
+            mouse = pygame.mouse.get_pos()
+            for rect, label, base in (
+                (yes_r, "Yes", p["btn_on"]),
+                (no_r,  "No",  p["btn"]),
+            ):
+                r, g, b = base
+                bg = (min(r+20,255), min(g+20,255), min(b+20,255)) \
+                     if rect.collidepoint(mouse) else base
+                pygame.draw.rect(self.screen, bg, rect, border_radius=4)
+                s = self.fonts["btn"].render(label, True, p["btn_text"])
                 self.screen.blit(s, s.get_rect(center=rect.center))
 
             pygame.display.flip()
 
     @staticmethod
     def _ensure_txt(path: str) -> str:
-        """Append .txt if the path has no file extension."""
-        import os
         return path if os.path.splitext(path)[1] else path + ".txt"
 
     def _prompt_load_file(self):
@@ -1200,14 +1555,252 @@ class SudokuApp:
             self._text_dialog(f"Save failed: {e}  (ESC to dismiss)")
 
     # ──────────────────────────────────────────────────────────────────────────
+    # Puzzle library dialog
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _puzzle_library_dialog(self):
+        """Modal dialog to pick a built-in puzzle or generate one."""
+        p = self.p
+        DW, DH = 480, 420
+        dx = (WIN_W - DW) // 2
+        dy = (WIN_H - DH) // 2
+
+        self.draw()
+        background = self.screen.copy()
+        dim = pygame.Surface((WIN_W, WIN_H), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 110))
+        background.blit(dim, (0, 0))
+
+        tiers     = list(range(1, 6))
+        cur_tier  = 1
+        selected  = 0   # index within current tier's list
+        scroll    = 0
+
+        ITEM_H    = 22
+        LIST_X    = dx + 14
+        LIST_Y    = dy + 80
+        LIST_H    = DH - 130
+        ITEMS_VIS = LIST_H // ITEM_H
+
+        def tier_puzzles(t: int):
+            if t <= 4:
+                return get_puzzles_by_tier(t) if HAS_PUZZLES else []
+            return []   # tier 5 = generate
+
+        def load_selected():
+            plist = tier_puzzles(cur_tier)
+            if cur_tier == 5:
+                if HAS_GENERATOR:
+                    # Close dialog, generate in background
+                    return "generate"
+                return None
+            if not plist or selected >= len(plist):
+                return None
+            entry = plist[selected]
+            vals  = [[int(ch) for ch in row] for row in entry["rows"]]
+            return vals
+
+        close_r  = pygame.Rect(dx + DW - 40, dy + 8, 30, 22)
+        load_r   = pygame.Rect(dx + DW - 100, dy + DH - 36, 88, 26)
+        gen_r    = pygame.Rect(dx + 14,       dy + DH - 36, 120, 26)
+
+        tier_rects = []
+        for i, t in enumerate(tiers):
+            tier_rects.append(pygame.Rect(dx + 14 + i * 90, dy + 46, 82, 24))
+
+        while True:
+            self.clock.tick(30)
+            for ev in pygame.event.get():
+                if ev.type == pygame.QUIT:
+                    return
+                elif ev.type == pygame.KEYDOWN:
+                    if ev.key == pygame.K_ESCAPE:
+                        return
+                    elif ev.key == pygame.K_UP:
+                        selected = max(0, selected - 1)
+                        scroll   = min(scroll, selected)
+                    elif ev.key == pygame.K_DOWN:
+                        plist = tier_puzzles(cur_tier)
+                        selected = min(len(plist) - 1, selected + 1)
+                        if selected >= scroll + ITEMS_VIS:
+                            scroll = selected - ITEMS_VIS + 1
+                    elif ev.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        result = load_selected()
+                        if result == "generate":
+                            self._do_generate(cur_tier)
+                            return
+                        elif result:
+                            self.load_puzzle(result)
+                            return
+                elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
+                    if close_r.collidepoint(ev.pos):
+                        return
+                    for i, tr in enumerate(tier_rects):
+                        if tr.collidepoint(ev.pos):
+                            cur_tier = tiers[i]
+                            selected = 0
+                            scroll   = 0
+                    # List items
+                    plist = tier_puzzles(cur_tier)
+                    for i in range(ITEMS_VIS):
+                        ir = pygame.Rect(LIST_X, LIST_Y + i * ITEM_H,
+                                         DW - 28, ITEM_H)
+                        if ir.collidepoint(ev.pos):
+                            idx = scroll + i
+                            if idx < len(plist):
+                                if selected == idx:
+                                    result = load_selected()
+                                    if result and result != "generate":
+                                        self.load_puzzle(result)
+                                        return
+                                selected = idx
+                    if load_r.collidepoint(ev.pos):
+                        result = load_selected()
+                        if result == "generate":
+                            self._do_generate(cur_tier)
+                            return
+                        elif result:
+                            self.load_puzzle(result)
+                            return
+                    if gen_r.collidepoint(ev.pos) and HAS_GENERATOR:
+                        self._do_generate(cur_tier)
+                        return
+                elif ev.type == pygame.MOUSEWHEEL:
+                    plist = tier_puzzles(cur_tier)
+                    scroll = max(0, min(len(plist) - ITEMS_VIS,
+                                        scroll - ev.y))
+
+            # Draw
+            p2 = self.p
+            self.screen.blit(background, (0, 0))
+            box = pygame.Rect(dx, dy, DW, DH)
+            pygame.draw.rect(self.screen, p2["panel_bg"], box, border_radius=8)
+            pygame.draw.rect(self.screen, p2["grid_thick"], box, 2, border_radius=8)
+
+            surf = self.fonts["panel_title"].render("Puzzle Library", True, p2["given_fg"])
+            self.screen.blit(surf, (dx + 14, dy + 14))
+
+            # Close button
+            pygame.draw.rect(self.screen, p2["btn_danger"], close_r, border_radius=3)
+            s = self.fonts["btn"].render("✕", True, p2["btn_text"])
+            self.screen.blit(s, s.get_rect(center=close_r.center))
+
+            # Tier tabs
+            for i, (t, tr) in enumerate(zip(tiers, tier_rects)):
+                is_cur = (t == cur_tier)
+                bg = p2["btn_on"] if is_cur else p2["btn"]
+                pygame.draw.rect(self.screen, bg, tr, border_radius=4)
+                label = f"Tier {t}" if t <= 4 else "Generate"
+                s = self.fonts["btn"].render(label, True, p2["btn_text"])
+                self.screen.blit(s, s.get_rect(center=tr.center))
+
+            # List
+            plist = tier_puzzles(cur_tier)
+            pygame.draw.rect(self.screen,
+                             p2["bg"],
+                             pygame.Rect(LIST_X - 2, LIST_Y - 2,
+                                         DW - 24, LIST_H + 4),
+                             border_radius=4)
+            if not plist and cur_tier <= 4:
+                s = self.fonts["panel_body"].render(
+                    "No puzzles (puzzles.py not found)", True, p2["warn"])
+                self.screen.blit(s, (LIST_X + 4, LIST_Y + 8))
+            elif cur_tier == 5:
+                msg = ("Click GENERATE to create a Tier 4 puzzle."
+                       if HAS_GENERATOR else
+                       "sudoku_generator.py not found.")
+                s = self.fonts["panel_body"].render(msg, True, p2["cand_fg"])
+                self.screen.blit(s, (LIST_X + 4, LIST_Y + 8))
+            else:
+                for i in range(ITEMS_VIS):
+                    idx = scroll + i
+                    if idx >= len(plist):
+                        break
+                    entry = plist[idx]
+                    ir = pygame.Rect(LIST_X, LIST_Y + i * ITEM_H, DW - 28, ITEM_H)
+                    if idx == selected:
+                        pygame.draw.rect(self.screen, p2["btn"], ir, border_radius=3)
+                    s = self.fonts["panel_body"].render(
+                        entry["name"], True,
+                        p2["btn_text"] if idx == selected else p2["solved_fg"])
+                    self.screen.blit(s, (ir.x + 6, ir.y + 3))
+
+            # Buttons
+            pygame.draw.rect(self.screen, p2["btn_on"], load_r, border_radius=4)
+            s = self.fonts["btn"].render("Load", True, p2["btn_text"])
+            self.screen.blit(s, s.get_rect(center=load_r.center))
+
+            if HAS_GENERATOR:
+                pygame.draw.rect(self.screen, p2["btn"], gen_r, border_radius=4)
+                s = self.fonts["btn"].render("Generate", True, p2["btn_text"])
+                self.screen.blit(s, s.get_rect(center=gen_r.center))
+
+            pygame.display.flip()
+
+    def _do_generate(self, target_tier: int):
+        """Generate a puzzle of the given tier (blocks briefly)."""
+        if not HAS_GENERATOR:
+            return
+        self._confirm_dialog("Generating…",
+                             "Generating puzzle — this may take a few seconds.")
+        vals = generate_puzzle(target_tier=min(target_tier, 4),
+                               max_attempts=30)
+        if vals is None:
+            self._confirm_dialog("Failed",
+                                 "Could not generate a puzzle of that tier.")
+        else:
+            self.load_puzzle(vals)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Export
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _export_png(self):
+        path = self._text_dialog("Export PNG — enter file path:", default="sudoku.png")
+        if not path:
+            return
+        if not os.path.splitext(path)[1]:
+            path += ".png"
+        try:
+            self.draw()
+            pygame.image.save(self.screen, path)
+        except Exception as e:
+            self._text_dialog(f"Export failed: {e}  (ESC to dismiss)")
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Text rendering helper
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _wrapped(self, target, text: str, x: int, y: int,
+                 max_w: int, font, color) -> int:
+        words = text.split()
+        line  = ""
+        for word in words:
+            test = (line + " " + word).strip()
+            if font.size(test)[0] <= max_w:
+                line = test
+            else:
+                if line:
+                    surf = font.render(line, True, color)
+                    target.blit(surf, (x, y))
+                    y += surf.get_height() + 1
+                line = word
+        if line:
+            surf = font.render(line, True, color)
+            target.blit(surf, (x, y))
+            y += surf.get_height() + 1
+        return y
+
+    # ──────────────────────────────────────────────────────────────────────────
     # Main loop
     # ──────────────────────────────────────────────────────────────────────────
 
     def run(self):
         running = True
         while running:
-            dt = self.clock.tick(60)
+            dt      = self.clock.tick(60)
             running = self.handle_events()
+            self._check_compute_ready()
 
             if self.auto_play and self.mode == "solve":
                 self.auto_timer += dt
@@ -1219,7 +1812,11 @@ class SudokuApp:
                         self.auto_play = False
 
             total = len(self.steps)
-            if self.brute_force_grid is not None:
+            if self._computing:
+                state = "Computing…"
+            elif self.mode == "play":
+                state = "PLAY"
+            elif self.brute_force_grid is not None:
                 state = "BRUTE FORCED"
             elif self.conflict_cells and self.mode == "solve":
                 state = "CONFLICT"
@@ -1233,6 +1830,12 @@ class SudokuApp:
 
             self.draw()
 
+        # Save config before quitting
+        save_config({
+            "dark_mode":       self.dark_mode,
+            "show_candidates": self.show_candidates,
+            "auto_interval":   self.auto_interval,
+        })
         pygame.quit()
 
 

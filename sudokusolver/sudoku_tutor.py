@@ -19,6 +19,7 @@ Strategies implemented (in order of application):
   Tier 3 — Advanced:    X-Wing, Swordfish, Y-Wing, XYZ-Wing, Simple Coloring
   Tier 4 — Expert:      Unique Rectangle, W-Wing, Skyscraper,
                           2-String Kite, BUG+1
+  Tier 5 — Master:      Finned X-Wing, XY-Chain
 """
 
 import sys
@@ -1283,6 +1284,193 @@ def find_bug_plus_1(grid: Grid) -> Optional[Step]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Tier 5 — Master Strategies
+# ─────────────────────────────────────────────────────────────────────────────
+
+def find_finned_x_wing(grid: Grid) -> Optional[Step]:
+    """
+    Finned X-Wing: An X-Wing where one base line has extra 'fin' cells beyond
+    the two defining cover-line positions. All fins must share a box with one
+    of the base cells in the finned line.  Eliminations are restricted to cells
+    in that same box AND in the cover line that the fins share with.
+    """
+    for d in range(1, 10):
+        # ── Row-based ────────────────────────────────────────────────────────
+        row_cands: dict = {}
+        for r in range(9):
+            cols = [c for c in range(9)
+                    if grid.values[r][c] == 0 and d in grid.candidates[r][c]]
+            if 2 <= len(cols) <= 4:
+                row_cands[r] = cols
+
+        for r1, r2 in combinations(row_cands, 2):
+            for clean_r, fin_r in ((r1, r2), (r2, r1)):
+                clean_cols = set(row_cands[clean_r])
+                fin_cols   = set(row_cands[fin_r])
+                if len(clean_cols) != 2:
+                    continue
+                if not clean_cols.issubset(fin_cols):
+                    continue
+                c1, c2 = tuple(clean_cols)
+                fins = [c for c in fin_cols if c not in clean_cols]
+                if not fins:
+                    continue
+                for base_c in (c1, c2):
+                    fin_box = Grid.box_of(fin_r, base_c)
+                    if not all(Grid.box_of(fin_r, fc) == fin_box for fc in fins):
+                        continue
+                    # Eliminate d from cells in fin_box, in column base_c, not in chain
+                    elim_rows = [r for r, _ in Grid.cells_of_box(fin_box)
+                                 if r not in (clean_r, fin_r)]
+                    eliminations = [
+                        (r, base_c, d) for r in elim_rows
+                        if grid.values[r][base_c] == 0
+                        and d in grid.candidates[r][base_c]
+                    ]
+                    if eliminations:
+                        fin_names = ", ".join(cell_name(fin_r, fc) for fc in fins)
+                        return Step(
+                            strategy="Finned X-Wing",
+                            eliminations=eliminations,
+                            pattern_cells=(
+                                [(clean_r, c1), (clean_r, c2),
+                                 (fin_r,   c1), (fin_r,   c2)]
+                                + [(fin_r, fc) for fc in fins]
+                            ),
+                            explanation=(
+                                f"Finned X-Wing for digit {d}: rows {clean_r+1} and "
+                                f"{fin_r+1} share an X-Wing base in columns {c1+1},{c2+1}. "
+                                f"Row {fin_r+1} also has fin(s) at {fin_names} "
+                                f"(all in box {fin_box+1}). The fins restrict eliminations "
+                                f"to column {base_c+1} within box {fin_box+1}."
+                            ),
+                        )
+
+        # ── Column-based ─────────────────────────────────────────────────────
+        col_cands: dict = {}
+        for c in range(9):
+            rows = [r for r in range(9)
+                    if grid.values[r][c] == 0 and d in grid.candidates[r][c]]
+            if 2 <= len(rows) <= 4:
+                col_cands[c] = rows
+
+        for c1, c2 in combinations(col_cands, 2):
+            for clean_c, fin_c in ((c1, c2), (c2, c1)):
+                clean_rows = set(col_cands[clean_c])
+                fin_rows   = set(col_cands[fin_c])
+                if len(clean_rows) != 2:
+                    continue
+                if not clean_rows.issubset(fin_rows):
+                    continue
+                r1, r2 = tuple(clean_rows)
+                fins = [r for r in fin_rows if r not in clean_rows]
+                if not fins:
+                    continue
+                for base_r in (r1, r2):
+                    fin_box = Grid.box_of(base_r, fin_c)
+                    if not all(Grid.box_of(fr, fin_c) == fin_box for fr in fins):
+                        continue
+                    elim_cols = [c for _, c in Grid.cells_of_box(fin_box)
+                                 if c not in (clean_c, fin_c)]
+                    eliminations = [
+                        (base_r, c, d) for c in elim_cols
+                        if grid.values[base_r][c] == 0
+                        and d in grid.candidates[base_r][c]
+                    ]
+                    if eliminations:
+                        fin_names = ", ".join(cell_name(fr, fin_c) for fr in fins)
+                        return Step(
+                            strategy="Finned X-Wing",
+                            eliminations=eliminations,
+                            pattern_cells=(
+                                [(r1, clean_c), (r1, fin_c),
+                                 (r2, clean_c), (r2, fin_c)]
+                                + [(fr, fin_c) for fr in fins]
+                            ),
+                            explanation=(
+                                f"Finned X-Wing for digit {d}: columns {clean_c+1} and "
+                                f"{fin_c+1} share an X-Wing base in rows {r1+1},{r2+1}. "
+                                f"Column {fin_c+1} also has fin(s) at {fin_names}. "
+                                f"Eliminations restricted to row {base_r+1} within "
+                                f"box {fin_box+1}."
+                            ),
+                        )
+    return None
+
+
+def find_xy_chain(grid: Grid) -> Optional[Step]:
+    """
+    XY-Chain: A chain of bi-value cells C1–C2–…–Cn where:
+    - Each consecutive pair sees each other and shares one candidate (the link).
+    - The non-linked digit at C1 equals the non-linked digit at Cn (call it X).
+    One of the two end-cells must hold X, so any cell seeing both ends can
+    eliminate X.
+    """
+    bivs = [
+        (r, c) for r in range(9) for c in range(9)
+        if grid.values[r][c] == 0 and len(grid.candidates[r][c]) == 2
+    ]
+    MAX_LEN = 8
+
+    for start in bivs:
+        sr, sc = start
+        cands_s = grid.candidates[sr][sc]
+
+        for free_digit in cands_s:
+            # DFS state: (current, link_in, path, visited)
+            # link_in is the digit "used up" arriving at current from the left.
+            # Setting link_in = free_digit for the start means current's free end = link_digit,
+            # which is the digit going OUT to the first real cell in the chain.
+            stack = [(start, free_digit, (start,), frozenset([start]))]
+            while stack:
+                cur, link_in, path, visited = stack.pop()
+                cr, cc = cur
+                cur_cands = grid.candidates[cr][cc]
+                # free end of cur = the digit NOT = link_in
+                cur_free = next(d for d in cur_cands if d != link_in)
+
+                if len(path) >= 3 and cur_free == free_digit:
+                    eliminations = [
+                        (r, c, free_digit)
+                        for r in range(9) for c in range(9)
+                        if (r, c) not in visited
+                        and grid.values[r][c] == 0
+                        and free_digit in grid.candidates[r][c]
+                        and grid.cell_sees(r, c, sr, sc)
+                        and grid.cell_sees(r, c, cr, cc)
+                    ]
+                    if eliminations:
+                        return Step(
+                            strategy="XY-Chain",
+                            eliminations=eliminations,
+                            pattern_cells=list(path),
+                            explanation=(
+                                f"XY-Chain ({len(path)} cells): "
+                                f"{cell_name(sr,sc)} → … → {cell_name(cr,cc)}. "
+                                f"Both endpoints have {free_digit} as their free digit. "
+                                f"One endpoint must hold {free_digit}, so any cell "
+                                f"seeing both ends cannot contain {free_digit}."
+                            ),
+                        )
+
+                if len(path) >= MAX_LEN:
+                    continue
+
+                # cur_free becomes the link_in to the next cell
+                for nxt in bivs:
+                    if nxt in visited:
+                        continue
+                    nr, nc = nxt
+                    if not grid.cell_sees(cr, cc, nr, nc):
+                        continue
+                    if cur_free not in grid.candidates[nr][nc]:
+                        continue
+                    stack.append((nxt, cur_free, path + (nxt,),
+                                  visited | {nxt}))
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Strategy Registry
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1309,6 +1497,9 @@ ALL_STRATEGIES = [
     ("Skyscraper",         find_skyscraper),
     ("2-String Kite",      find_2_string_kite),
     ("BUG+1",              find_bug_plus_1),
+    # Tier 5
+    ("Finned X-Wing",      find_finned_x_wing),
+    ("XY-Chain",           find_xy_chain),
 ]
 
 
