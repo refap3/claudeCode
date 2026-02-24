@@ -9,7 +9,7 @@ A fast-paced arcade racing game that runs in your terminal! Race around an oval 
 - 👀 **Top-down view** - See the entire track from a bird's eye perspective
 - 🎮 **Simple controls** - Drive with arrow keys
 - 🖥️ **Cross-platform** - Works on Windows, macOS, and Linux
-- 📦 **No dependencies** - Uses only Python standard library
+- 📦 **Minimal dependencies** - Standard library only (Windows needs `pip install windows-curses`)
 
 ## Quick Start
 
@@ -70,6 +70,7 @@ Last Lap: 12.45s | Best: 11.23s
 - Python 3.x
 - Terminal with UTF-8 support (for arrow characters)
 - Minimum terminal size: 100x55 characters (recommended)
+- Windows only: `pip install windows-curses`
 
 ## Technical Details
 
