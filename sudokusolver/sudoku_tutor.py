@@ -17,6 +17,8 @@ Strategies implemented (in order of application):
   Tier 2 — Intermediate: Naked/Hidden Pairs/Triples/Quads,
                           Pointing Pairs/Triples, Box-Line Reduction
   Tier 3 — Advanced:    X-Wing, Swordfish, Y-Wing, XYZ-Wing, Simple Coloring
+  Tier 4 — Expert:      Unique Rectangle, W-Wing, Skyscraper,
+                          2-String Kite, BUG+1
 """
 
 import sys
@@ -50,12 +52,13 @@ else:
 @dataclass
 class Step:
     """One solving step: a strategy application with explanation."""
-    strategy:     str
-    explanation:  str
-    placements:   list = field(default_factory=list)   # [(row, col, digit)]
-    eliminations: list = field(default_factory=list)   # [(row, col, digit)]
-    house_type:   str  = ""
-    house_index:  int  = -1
+    strategy:      str
+    explanation:   str
+    placements:    list = field(default_factory=list)   # [(row, col, digit)]
+    eliminations:  list = field(default_factory=list)   # [(row, col, digit)]
+    house_type:    str  = ""
+    house_index:   int  = -1
+    pattern_cells: list = field(default_factory=list)   # [(row, col)] strategy-defining cells
 
 
 class Grid:
@@ -575,6 +578,7 @@ def find_x_wing(grid: Grid) -> Optional[Step]:
                     return Step(
                         strategy="X-Wing",
                         eliminations=eliminations,
+                        pattern_cells=[(r1,c1),(r1,c2),(r2,c1),(r2,c2)],
                         explanation=(
                             f"Digit {d} forms an X-Wing: it appears in exactly 2 cells "
                             f"in Row {r1+1} (columns {c1+1} and {c2+1}) and exactly 2 "
@@ -610,6 +614,7 @@ def find_x_wing(grid: Grid) -> Optional[Step]:
                     return Step(
                         strategy="X-Wing",
                         eliminations=eliminations,
+                        pattern_cells=[(r1,c1),(r1,c2),(r2,c1),(r2,c2)],
                         explanation=(
                             f"Digit {d} forms an X-Wing: it appears in exactly 2 cells "
                             f"in Column {c1+1} (rows {r1+1} and {r2+1}) and exactly 2 "
@@ -655,6 +660,10 @@ def find_swordfish(grid: Grid) -> Optional[Step]:
                     return Step(
                         strategy="Swordfish",
                         eliminations=eliminations,
+                        pattern_cells=[
+                            (r, c) for r in (r1, r2, r3) for c in cover
+                            if grid.values[r][c] == 0 and d in grid.candidates[r][c]
+                        ],
                         explanation=(
                             f"Digit {d} forms a Swordfish across rows {rows_s}: in "
                             f"each of these rows, {d} only appears within columns "
@@ -692,6 +701,10 @@ def find_swordfish(grid: Grid) -> Optional[Step]:
                     return Step(
                         strategy="Swordfish",
                         eliminations=eliminations,
+                        pattern_cells=[
+                            (r, c) for c in (c1, c2, c3) for r in cover
+                            if grid.values[r][c] == 0 and d in grid.candidates[r][c]
+                        ],
                         explanation=(
                             f"Digit {d} forms a Swordfish across columns {cols_s}: "
                             f"each column only has {d} within rows {rows_s}. So {d} "
@@ -749,6 +762,7 @@ def find_y_wing(grid: Grid) -> Optional[Step]:
                 return Step(
                     strategy="Y-Wing",
                     eliminations=eliminations,
+                    pattern_cells=[(rp,cp),(r1,c1),(r2,c2)],
                     explanation=(
                         f"Y-Wing: Pivot {cell_name(rp,cp)} = {digits_str({A,B})}. "
                         f"Wing 1 at {cell_name(r1,c1)} = {digits_str(cands1)}, "
@@ -807,6 +821,7 @@ def find_xyz_wing(grid: Grid) -> Optional[Step]:
                 return Step(
                     strategy="XYZ-Wing",
                     eliminations=eliminations,
+                    pattern_cells=[(rp,cp),(r1,c1),(r2,c2)],
                     explanation=(
                         f"XYZ-Wing: Pivot {cell_name(rp,cp)} = {digits_str(pivot_cands)}. "
                         f"Wing 1 at {cell_name(r1,c1)} = {digits_str(cands1)}, "
@@ -876,6 +891,7 @@ def find_simple_coloring(grid: Grid) -> Optional[Step]:
                             return Step(
                                 strategy="Simple Coloring",
                                 eliminations=eliminations,
+                                pattern_cells=list(component.keys()),
                                 explanation=(
                                     f"For digit {d}, a conjugate chain was built. "
                                     f"Two {color_name}-colored cells "
@@ -900,6 +916,7 @@ def find_simple_coloring(grid: Grid) -> Optional[Step]:
                 return Step(
                     strategy="Simple Coloring",
                     eliminations=eliminations,
+                    pattern_cells=list(component.keys()),
                     explanation=(
                         f"For digit {d}, conjugate pairs form a chain colored "
                         f"blue/green. Blue cells: {cells_name(blue)}; "
@@ -910,6 +927,358 @@ def find_simple_coloring(grid: Grid) -> Optional[Step]:
                         f"wins."
                     ),
                 )
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tier 4 — Expert Strategies
+# ─────────────────────────────────────────────────────────────────────────────
+
+def find_unique_rectangle(grid: Grid) -> Optional[Step]:
+    """
+    Unique Rectangle (UR): Assumes the puzzle has a unique solution.
+    Four cells in a 2×2 rectangle spanning exactly 2 boxes cannot all contain
+    only the same two candidates {A,B} — that would create a deadly pattern
+    with multiple solutions.
+
+    UR Type 1: Three corners have exactly {A,B}; the fourth has {A,B,...}.
+               Eliminate A and B from the fourth cell.
+    UR Type 2: Two corners have exactly {A,B}; the other two have {A,B,X}.
+               X must go in one of the two "roof" cells — eliminate X from
+               any cell seeing both roofs.
+    """
+    for d1, d2 in combinations(range(1, 10), 2):
+        pair = frozenset({d1, d2})
+        for r1, r2 in combinations(range(9), 2):
+            for c1, c2 in combinations(range(9), 2):
+                cells = [(r1, c1), (r1, c2), (r2, c1), (r2, c2)]
+                # Rectangle must span exactly 2 boxes
+                boxes = {Grid.box_of(r, c) for r, c in cells}
+                if len(boxes) != 2:
+                    continue
+                # All 4 cells must be empty with {A,B} ⊆ candidates
+                if not all(
+                    grid.values[r][c] == 0 and pair.issubset(grid.candidates[r][c])
+                    for r, c in cells
+                ):
+                    continue
+                floors = [(r, c) for r, c in cells if grid.candidates[r][c] == pair]
+                roofs  = [(r, c) for r, c in cells if grid.candidates[r][c] != pair]
+                # UR Type 1: 3 floors, 1 roof
+                if len(floors) == 3 and len(roofs) == 1:
+                    rr, rc = roofs[0]
+                    eliminations = [
+                        (rr, rc, d) for d in (d1, d2)
+                        if d in grid.candidates[rr][rc]
+                    ]
+                    if eliminations:
+                        return Step(
+                            strategy="Unique Rectangle",
+                            eliminations=eliminations,
+                            pattern_cells=cells,
+                            explanation=(
+                                f"Unique Rectangle (Type 1) with digits {d1},{d2} at "
+                                f"{cell_name(r1,c1)},{cell_name(r1,c2)},"
+                                f"{cell_name(r2,c1)},{cell_name(r2,c2)}. "
+                                f"Three corners have exactly {{{d1},{d2}}}. "
+                                f"If {cell_name(rr,rc)} also only contained {{{d1},{d2}}}, "
+                                f"the puzzle would have multiple solutions (deadly pattern). "
+                                f"Therefore {d1} and {d2} can be eliminated from {cell_name(rr,rc)}."
+                            ),
+                        )
+                # UR Type 2: 2 floors, 2 roofs with same single extra digit X
+                if len(floors) == 2 and len(roofs) == 2:
+                    extras1 = grid.candidates[roofs[0][0]][roofs[0][1]] - pair
+                    extras2 = grid.candidates[roofs[1][0]][roofs[1][1]] - pair
+                    if extras1 == extras2 and len(extras1) == 1:
+                        X = next(iter(extras1))
+                        rr1, rc1 = roofs[0]
+                        rr2, rc2 = roofs[1]
+                        eliminations = [
+                            (r, c, X)
+                            for r in range(9) for c in range(9)
+                            if (r, c) not in cells
+                            and grid.values[r][c] == 0
+                            and X in grid.candidates[r][c]
+                            and grid.cell_sees(r, c, rr1, rc1)
+                            and grid.cell_sees(r, c, rr2, rc2)
+                        ]
+                        if eliminations:
+                            return Step(
+                                strategy="Unique Rectangle",
+                                eliminations=eliminations,
+                                pattern_cells=cells,
+                                explanation=(
+                                    f"Unique Rectangle (Type 2) with digits {d1},{d2} at "
+                                    f"{cell_name(r1,c1)},{cell_name(r1,c2)},"
+                                    f"{cell_name(r2,c1)},{cell_name(r2,c2)}. "
+                                    f"Two corners are exactly {{{d1},{d2}}}; the other two "
+                                    f"also contain extra digit {X}. To avoid a deadly pattern, "
+                                    f"{X} must occupy one of {cell_name(rr1,rc1)} or "
+                                    f"{cell_name(rr2,rc2)}. Cells seeing both cannot hold {X}."
+                                ),
+                            )
+    return None
+
+
+def find_w_wing(grid: Grid) -> Optional[Step]:
+    """
+    W-Wing: Two bi-value cells P1={A,B} and P2={A,B} that don't see each other.
+    If there is a strong link on A (a house where A appears in exactly 2 cells,
+    one seeing P1 and the other seeing P2), then B can be eliminated from any
+    cell seeing both P1 and P2.
+    """
+    bivs = [
+        (r, c) for r in range(9) for c in range(9)
+        if grid.values[r][c] == 0 and len(grid.candidates[r][c]) == 2
+    ]
+    for i, (r1, c1) in enumerate(bivs):
+        for r2, c2 in bivs[i + 1:]:
+            if grid.candidates[r1][c1] != grid.candidates[r2][c2]:
+                continue
+            if grid.cell_sees(r1, c1, r2, c2):
+                continue   # would be a naked pair
+            A, B = tuple(grid.candidates[r1][c1])
+            for bridge_digit, elim_digit in ((A, B), (B, A)):
+                for _, _, house_cells in grid.get_houses():
+                    positions = [
+                        (r, c) for r, c in house_cells
+                        if grid.values[r][c] == 0
+                        and bridge_digit in grid.candidates[r][c]
+                    ]
+                    if len(positions) != 2:
+                        continue
+                    (la, lb), (ra, rb) = positions
+                    sees_p1_la = grid.cell_sees(la, lb, r1, c1)
+                    sees_p2_la = grid.cell_sees(la, lb, r2, c2)
+                    sees_p1_ra = grid.cell_sees(ra, rb, r1, c1)
+                    sees_p2_ra = grid.cell_sees(ra, rb, r2, c2)
+                    if not ((sees_p1_la and sees_p2_ra) or (sees_p2_la and sees_p1_ra)):
+                        continue
+                    eliminations = [
+                        (r, c, elim_digit)
+                        for r in range(9) for c in range(9)
+                        if (r, c) not in {(r1, c1), (r2, c2)}
+                        and grid.values[r][c] == 0
+                        and elim_digit in grid.candidates[r][c]
+                        and grid.cell_sees(r, c, r1, c1)
+                        and grid.cell_sees(r, c, r2, c2)
+                    ]
+                    if eliminations:
+                        return Step(
+                            strategy="W-Wing",
+                            eliminations=eliminations,
+                            pattern_cells=[(la, lb), (ra, rb), (r1, c1), (r2, c2)],
+                            explanation=(
+                                f"W-Wing: Cells {cell_name(r1,c1)} and {cell_name(r2,c2)} "
+                                f"both have candidates {{{A},{B}}} and don't see each other. "
+                                f"A strong link on {bridge_digit} connects {cell_name(la,lb)} "
+                                f"and {cell_name(ra,rb)} (the bridge). One bridge end sees P1, "
+                                f"the other sees P2 — so one of P1 or P2 is forced to "
+                                f"{elim_digit}. Any cell seeing both P1 and P2 cannot hold "
+                                f"{elim_digit}."
+                            ),
+                        )
+    return None
+
+
+def find_skyscraper(grid: Grid) -> Optional[Step]:
+    """
+    Skyscraper: For digit D, two rows (or columns) each have D in exactly 2 cells.
+    The rows share one column (the 'trunk'). The other two cells (the 'roofs') are
+    connected by the trunk strong link: exactly one roof must contain D.
+    Any cell seeing both roofs can eliminate D.
+    """
+    for d in range(1, 10):
+        # Row-based
+        row_two: dict = {}
+        for r in range(9):
+            cols = [c for c in range(9)
+                    if grid.values[r][c] == 0 and d in grid.candidates[r][c]]
+            if len(cols) == 2:
+                row_two[r] = cols
+        for ra, rb in combinations(row_two, 2):
+            ca1, ca2 = row_two[ra]
+            cb1, cb2 = row_two[rb]
+            shared = {ca1, ca2} & {cb1, cb2}
+            if len(shared) != 1:
+                continue
+            sc = next(iter(shared))
+            roof_a = (ra, ca1 if ca2 == sc else ca2)
+            roof_b = (rb, cb1 if cb2 == sc else cb2)
+            # Roofs must be in different boxes for a real Skyscraper
+            if Grid.box_of(*roof_a) == Grid.box_of(*roof_b):
+                continue
+            eliminations = [
+                (r, c, d)
+                for r in range(9) for c in range(9)
+                if (r, c) not in {(ra, sc), (rb, sc), roof_a, roof_b}
+                and grid.values[r][c] == 0
+                and d in grid.candidates[r][c]
+                and grid.cell_sees(r, c, *roof_a)
+                and grid.cell_sees(r, c, *roof_b)
+            ]
+            if eliminations:
+                return Step(
+                    strategy="Skyscraper",
+                    eliminations=eliminations,
+                    pattern_cells=[(ra, sc), (rb, sc), roof_a, roof_b],
+                    explanation=(
+                        f"Skyscraper for digit {d}: rows {ra+1} and {rb+1} each have "
+                        f"{d} in exactly 2 cells, sharing column {sc+1} as the trunk. "
+                        f"The strong link in column {sc+1} means one trunk cell holds "
+                        f"{d}, forcing the opposite roof to also hold {d} (via its row). "
+                        f"One of {cell_name(*roof_a)} or {cell_name(*roof_b)} must be "
+                        f"{d}, so any cell seeing both roofs can eliminate {d}."
+                    ),
+                )
+        # Column-based
+        col_two: dict = {}
+        for c in range(9):
+            rows = [r for r in range(9)
+                    if grid.values[r][c] == 0 and d in grid.candidates[r][c]]
+            if len(rows) == 2:
+                col_two[c] = rows
+        for ca, cb in combinations(col_two, 2):
+            ra1, ra2 = col_two[ca]
+            rb1, rb2 = col_two[cb]
+            shared = {ra1, ra2} & {rb1, rb2}
+            if len(shared) != 1:
+                continue
+            sr = next(iter(shared))
+            roof_a = (ra1 if ra2 == sr else ra2, ca)
+            roof_b = (rb1 if rb2 == sr else rb2, cb)
+            if Grid.box_of(*roof_a) == Grid.box_of(*roof_b):
+                continue
+            eliminations = [
+                (r, c, d)
+                for r in range(9) for c in range(9)
+                if (r, c) not in {(sr, ca), (sr, cb), roof_a, roof_b}
+                and grid.values[r][c] == 0
+                and d in grid.candidates[r][c]
+                and grid.cell_sees(r, c, *roof_a)
+                and grid.cell_sees(r, c, *roof_b)
+            ]
+            if eliminations:
+                return Step(
+                    strategy="Skyscraper",
+                    eliminations=eliminations,
+                    pattern_cells=[(sr, ca), (sr, cb), roof_a, roof_b],
+                    explanation=(
+                        f"Skyscraper for digit {d}: columns {ca+1} and {cb+1} each "
+                        f"have {d} in exactly 2 cells, sharing row {sr+1} as the trunk. "
+                        f"One of {cell_name(*roof_a)} or {cell_name(*roof_b)} must be "
+                        f"{d}, so any cell seeing both roofs can eliminate {d}."
+                    ),
+                )
+    return None
+
+
+def find_2_string_kite(grid: Grid) -> Optional[Step]:
+    """
+    2-String Kite: For digit D, a row and a column each have D in exactly 2 cells.
+    They share one cell (the pivot). The two non-pivot 'tail' cells each trace a
+    string from the pivot — one along the row, one along the column.
+    Exactly one tail must hold D; cells seeing both tails can eliminate D.
+    """
+    for d in range(1, 10):
+        row_two: dict = {}
+        for r in range(9):
+            cols = [c for c in range(9)
+                    if grid.values[r][c] == 0 and d in grid.candidates[r][c]]
+            if len(cols) == 2:
+                row_two[r] = cols
+        col_two: dict = {}
+        for c in range(9):
+            rows = [r for r in range(9)
+                    if grid.values[r][c] == 0 and d in grid.candidates[r][c]]
+            if len(rows) == 2:
+                col_two[c] = rows
+
+        for r, row_cols in row_two.items():
+            for pivot_c in row_cols:
+                if pivot_c not in col_two:
+                    continue
+                col_rows = col_two[pivot_c]
+                if r not in col_rows:
+                    continue
+                # Found: row r has D at (r, pivot_c) and (r, tail_c)
+                #        col pivot_c has D at (r, pivot_c) and (tail_r, pivot_c)
+                tail_c = row_cols[0] if row_cols[1] == pivot_c else row_cols[1]
+                tail_r = col_rows[0] if col_rows[1] == r else col_rows[1]
+                tail_row = (r, tail_c)
+                tail_col = (tail_r, pivot_c)
+                # Tails must be in different boxes
+                if Grid.box_of(*tail_row) == Grid.box_of(*tail_col):
+                    continue
+                eliminations = [
+                    (rr, cc, d)
+                    for rr in range(9) for cc in range(9)
+                    if (rr, cc) not in {(r, pivot_c), tail_row, tail_col}
+                    and grid.values[rr][cc] == 0
+                    and d in grid.candidates[rr][cc]
+                    and grid.cell_sees(rr, cc, *tail_row)
+                    and grid.cell_sees(rr, cc, *tail_col)
+                ]
+                if eliminations:
+                    return Step(
+                        strategy="2-String Kite",
+                        eliminations=eliminations,
+                        pattern_cells=[(r, pivot_c), tail_row, tail_col],
+                        explanation=(
+                            f"2-String Kite for digit {d}: pivot {cell_name(r,pivot_c)} "
+                            f"is the only cell where row {r+1} and column {pivot_c+1} "
+                            f"both have {d} in exactly 2 positions. "
+                            f"String 1 (row): {cell_name(r,pivot_c)}→{cell_name(*tail_row)}. "
+                            f"String 2 (col): {cell_name(r,pivot_c)}→{cell_name(*tail_col)}. "
+                            f"One of the two tail cells must hold {d}; "
+                            f"cells seeing both can eliminate {d}."
+                        ),
+                    )
+    return None
+
+
+def find_bug_plus_1(grid: Grid) -> Optional[Step]:
+    """
+    BUG+1 (Bivalue Universal Grave + 1):
+    All empty cells have exactly 2 candidates except exactly one tri-value cell.
+    The candidate that appears an odd number of times in all three houses (row,
+    column, box) of the tri-value cell must be placed there — otherwise the
+    puzzle would have multiple solutions (a Bivalue Universal Grave).
+    """
+    empty_cells = [
+        (r, c) for r in range(9) for c in range(9)
+        if grid.values[r][c] == 0
+    ]
+    trivalue = [(r, c) for r, c in empty_cells if len(grid.candidates[r][c]) == 3]
+    if len(trivalue) != 1:
+        return None
+    if any(len(grid.candidates[r][c]) != 2
+           for r, c in empty_cells if (r, c) != trivalue[0]):
+        return None
+
+    rp, cp = trivalue[0]
+    box = Grid.box_of(rp, cp)
+    row_cells = [(rp, c) for c in range(9) if grid.values[rp][c] == 0]
+    col_cells = [(r, cp) for r in range(9) if grid.values[r][cp] == 0]
+    box_cells = [(r, c) for r, c in Grid.cells_of_box(box) if grid.values[r][c] == 0]
+
+    for d in grid.candidates[rp][cp]:
+        rc = sum(1 for r, c in row_cells if d in grid.candidates[r][c])
+        cc = sum(1 for r, c in col_cells if d in grid.candidates[r][c])
+        bc = sum(1 for r, c in box_cells if d in grid.candidates[r][c])
+        if rc % 2 == 1 and cc % 2 == 1 and bc % 2 == 1:
+            return Step(
+                strategy="BUG+1",
+                placements=[(rp, cp, d)],
+                explanation=(
+                    f"BUG+1: Every empty cell has exactly 2 candidates except "
+                    f"{cell_name(rp,cp)} which has 3: {digits_str(grid.candidates[rp][cp])}. "
+                    f"Placing any digit other than {d} here would create a Bivalue "
+                    f"Universal Grave — a configuration with multiple solutions. "
+                    f"Therefore {d} must go at {cell_name(rp,cp)}."
+                ),
+            )
     return None
 
 
@@ -934,6 +1303,12 @@ ALL_STRATEGIES = [
     ("Y-Wing",             find_y_wing),
     ("XYZ-Wing",           find_xyz_wing),
     ("Simple Coloring",    find_simple_coloring),
+    # Tier 4
+    ("Unique Rectangle",   find_unique_rectangle),
+    ("W-Wing",             find_w_wing),
+    ("Skyscraper",         find_skyscraper),
+    ("2-String Kite",      find_2_string_kite),
+    ("BUG+1",              find_bug_plus_1),
 ]
 
 

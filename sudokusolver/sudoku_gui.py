@@ -56,8 +56,9 @@ BTN_Y   = GRID_Y + GRID_PX + MARGIN       # 608
 WIN_W = PANEL_X + PANEL_W + MARGIN        # 944
 WIN_H = BTN_Y + BTN_H + MARGIN            # 662
 
-SUBCELL_W = CELL_SIZE // 3                # 21
-SUBCELL_H = CELL_SIZE // 3                # 21
+SUBCELL_W    = CELL_SIZE // 3             # 21
+SUBCELL_H    = CELL_SIZE // 3             # 21
+PANEL_SURF_H = 1400                       # off-screen surface height for scrollable panel
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Colours
@@ -89,6 +90,8 @@ C_WARN         = (200,  60,  60)
 C_OK           = (  0, 140,  60)
 C_ACCENT       = (180,  80,   0)
 C_BRUTE_FG     = (120,  50, 180)   # purple — brute-forced digits
+C_PEER_BG      = (228, 234, 245)   # subtle blue tint — cells sharing house with selection
+C_PATTERN_BG   = (180, 235, 255)   # light cyan — strategy-defining (pattern) cells
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Strategy → tier mapping
@@ -111,6 +114,11 @@ STRATEGY_TIER: dict[str, int] = {
     "Y-Wing":             3,
     "XYZ-Wing":           3,
     "Simple Coloring":    3,
+    "Unique Rectangle":   4,
+    "W-Wing":             4,
+    "Skyscraper":         4,
+    "2-String Kite":      4,
+    "BUG+1":              4,
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -282,6 +290,7 @@ class SudokuApp:
         self.mode:         str              = "solve"
         self.input_values: list[list[int]] | None = None
         self.selected:     tuple | None    = None
+        self.panel_scroll: int             = 0   # pixels scrolled down in info panel
 
         self.btn_rects: dict = {}
         self._compute_btn_rects()
@@ -324,6 +333,15 @@ class SudokuApp:
             CELL_SIZE,
             CELL_SIZE,
         )
+
+    def _is_peer_of_selected(self, r: int, c: int) -> bool:
+        """Return True if (r,c) shares a row, column, or box with the selected cell."""
+        if self.selected is None:
+            return False
+        sr, sc = self.selected
+        if (r, c) == (sr, sc):
+            return False
+        return r == sr or c == sc or Grid.box_of(r, c) == Grid.box_of(sr, sc)
 
     # ──────────────────────────────────────────────────────────────────────────
     # Puzzle loading & step computation
@@ -391,6 +409,7 @@ class SudokuApp:
 
     def go_to_step(self, idx: int):
         self.brute_force_grid = None   # any navigation clears brute-force view
+        self.panel_scroll = 0          # reset scroll on step change
         self.step_idx = max(0, min(idx, len(self.steps)))
         if self.step_idx > 0:
             step = self.steps[self.step_idx - 1]
@@ -414,8 +433,11 @@ class SudokuApp:
                 cells = Grid.cells_of_box(step.house_index)
             for rc in cells:
                 h[rc] = "house"
+        for rc in step.pattern_cells:
+            if h.get(rc) in (None, "house"):
+                h[rc] = "pattern"
         for r, c, _d in step.eliminations:
-            if h.get((r, c)) in (None, "house"):
+            if h.get((r, c)) in (None, "house", "pattern"):
                 h[(r, c)] = "elim"
         for r, c, _d in step.placements:
             h[(r, c)] = "place"
@@ -477,6 +499,8 @@ class SudokuApp:
                 bg = C_CONFLICT_BG
             elif self.selected == (r, c):
                 bg = C_SELECTED
+            elif self._is_peer_of_selected(r, c):
+                bg = C_PEER_BG
             elif self.input_values[r][c] != 0:   # type: ignore[index]
                 bg = C_GIVEN_BG
             else:
@@ -492,10 +516,14 @@ class SudokuApp:
                     bg = C_PLACE_BG
                 elif tag == "elim":
                     bg = C_ELIM_BG
+                elif tag == "pattern":
+                    bg = C_PATTERN_BG
                 elif tag == "house":
                     bg = C_HOUSE_BG
                 elif self.selected == (r, c):
                     bg = C_SELECTED
+                elif self._is_peer_of_selected(r, c):
+                    bg = C_PEER_BG
                 elif grid.givens[r][c]:
                     bg = C_GIVEN_BG
                 else:
@@ -546,29 +574,56 @@ class SudokuApp:
     # ── Info panel ────────────────────────────────────────────────────────────
 
     def draw_panel(self):
-        panel_rect = pygame.Rect(PANEL_X, GRID_Y, PANEL_W, GRID_PX)
-        pygame.draw.rect(self.screen, C_PANEL_BG, panel_rect)
-        pygame.draw.rect(self.screen, C_GRID_THIN, panel_rect, 1)
+        """Render the info panel onto an off-screen surface, then blit a scrolled
+        viewport onto the screen.  Mousewheel scrolls the visible area."""
+        panel_view = pygame.Rect(PANEL_X, GRID_Y, PANEL_W, GRID_PX)
+        pygame.draw.rect(self.screen, C_PANEL_BG, panel_view)
+        pygame.draw.rect(self.screen, C_GRID_THIN, panel_view, 1)
 
-        x = PANEL_X + 10
-        y = GRID_Y + 10
+        # Off-screen surface for unlimited vertical space
+        psurf = pygame.Surface((PANEL_W, PANEL_SURF_H))
+        psurf.fill(C_PANEL_BG)
+
+        x = 10
+        y = 10
         max_w = PANEL_W - 20
 
         surf = self.fonts["panel_title"].render("SUDOKU TUTOR", True, C_GIVEN_FG)
-        self.screen.blit(surf, (x, y))
+        psurf.blit(surf, (x, y))
         y += surf.get_height() + 6
-        pygame.draw.line(self.screen, C_PANEL_LINE,
-                         (PANEL_X + 6, y), (PANEL_X + PANEL_W - 6, y), 1)
+        pygame.draw.line(psurf, C_PANEL_LINE, (6, y), (PANEL_W - 6, y), 1)
         y += 8
 
         if self.mode == "input":
-            self._draw_panel_input_mode(x, y, max_w)
-            return
+            y = self._draw_panel_input_mode(psurf, x, y, max_w)
+        else:
+            y = self._draw_panel_solve_mode(psurf, x, y, max_w)
 
-        # ── Brute-force result panel ──────────────────────────────────────────
+        # Clamp scroll so content doesn't scroll past bottom or above top
+        content_h = max(y + 10, GRID_PX)
+        max_scroll = max(0, content_h - GRID_PX)
+        self.panel_scroll = max(0, min(self.panel_scroll, max_scroll))
+
+        # Blit the scrolled viewport
+        viewport = pygame.Rect(0, self.panel_scroll, PANEL_W, GRID_PX)
+        self.screen.blit(psurf, (PANEL_X, GRID_Y), viewport)
+        pygame.draw.rect(self.screen, C_GRID_THIN, panel_view, 1)  # re-draw border on top
+
+        # Scrollbar indicator (only if content overflows)
+        if max_scroll > 0:
+            bar_track_h = GRID_PX - 4
+            bar_h = max(20, int(bar_track_h * GRID_PX / content_h))
+            bar_y = GRID_Y + 2 + int((bar_track_h - bar_h) * self.panel_scroll / max_scroll)
+            bar_x = PANEL_X + PANEL_W - 5
+            pygame.draw.rect(self.screen, C_CAND_FG,
+                             pygame.Rect(bar_x, bar_y, 3, bar_h), border_radius=2)
+
+    def _draw_panel_solve_mode(self, psurf: pygame.Surface, x: int, y: int, max_w: int) -> int:
+        """Draw solve-mode content onto psurf; return the final y position."""
+        # ── Brute-force result ────────────────────────────────────────────────
         if self.brute_force_grid is not None:
             surf = self.fonts["panel_title"].render("BRUTE FORCE", True, C_BRUTE_FG)
-            self.screen.blit(surf, (x, y))
+            psurf.blit(surf, (x, y))
             y += surf.get_height() + 6
             for line in (
                 "Puzzle solved by backtracking.",
@@ -586,39 +641,40 @@ class SudokuApp:
                     y += 4
                     continue
                 surf = self.fonts["panel_body"].render(line, True, C_SOLVED_FG)
-                self.screen.blit(surf, (x, y))
+                psurf.blit(surf, (x, y))
                 y += surf.get_height() + 2
-            return
+            return y
 
         total = len(self.steps)
         surf = self.fonts["panel_body"].render(
             f"Step {self.step_idx} / {total}", True, C_SOLVED_FG)
-        self.screen.blit(surf, (x, y))
+        psurf.blit(surf, (x, y))
         y += surf.get_height() + 6
 
-        # Show board conflict error (invalid initial puzzle or solver bug)
+        # Show board conflict error
         if self.conflict_cells:
             n = len(self.conflict_cells)
             surf = self.fonts["panel_body"].render(
                 f"CONFLICT: {n} cell(s) violate rules!", True, C_WARN)
-            self.screen.blit(surf, (x, y))
+            psurf.blit(surf, (x, y))
             y += surf.get_height() + 4
             if self.step_idx == 0:
                 surf = self.fonts["panel_body"].render(
                     "Fix the puzzle in INPUT mode.", True, C_CAND_FG)
-                self.screen.blit(surf, (x, y))
-            return
+                psurf.blit(surf, (x, y))
+                y += surf.get_height() + 2
+            return y
 
         if self.step_idx == 0:
             if self.stuck:
-                # Stuck immediately — no human strategy applied at all
                 surf = self.fonts["panel_body"].render(
                     "STUCK! No strategy found.", True, C_WARN)
-                self.screen.blit(surf, (x, y))
+                psurf.blit(surf, (x, y))
                 y += surf.get_height() + 6
                 surf = self.fonts["panel_body"].render(
                     "Press NEXT to try brute force.", True, C_CAND_FG)
-                self.screen.blit(surf, (x, y))
+                psurf.blit(surf, (x, y))
+                y += surf.get_height() + 2
             else:
                 for line in ("Initial puzzle.", "", "SPACE / NEXT to advance.",
                              "C = toggle candidates"):
@@ -626,71 +682,65 @@ class SudokuApp:
                         y += 4
                         continue
                     surf = self.fonts["panel_body"].render(line, True, C_CAND_FG)
-                    self.screen.blit(surf, (x, y))
+                    psurf.blit(surf, (x, y))
                     y += surf.get_height() + 2
-            return
+            return y
 
         step = self.steps[self.step_idx - 1]
 
         if self.stuck and self.step_idx == total:
             surf = self.fonts["panel_body"].render(
                 "STUCK! No strategy found.", True, C_WARN)
-            self.screen.blit(surf, (x, y))
+            psurf.blit(surf, (x, y))
             y += surf.get_height() + 2
             surf = self.fonts["panel_body"].render(
                 "Press NEXT to try brute force.", True, C_CAND_FG)
-            self.screen.blit(surf, (x, y))
+            psurf.blit(surf, (x, y))
             y += surf.get_height() + 6
 
         surf = self.fonts["panel_title"].render(step.strategy, True, (60, 100, 180))
-        self.screen.blit(surf, (x, y))
+        psurf.blit(surf, (x, y))
         y += surf.get_height() + 2
 
         tier = STRATEGY_TIER.get(step.strategy, "?")
         surf = self.fonts["panel_body"].render(f"Tier {tier}", True, C_CAND_FG)
-        self.screen.blit(surf, (x, y))
+        psurf.blit(surf, (x, y))
         y += surf.get_height() + 8
 
         if step.placements:
             surf = self.fonts["panel_body"].render("Placed:", True, (0, 140, 0))
-            self.screen.blit(surf, (x, y))
+            psurf.blit(surf, (x, y))
             y += surf.get_height() + 2
             for r, c, d in step.placements:
                 surf = self.fonts["panel_body"].render(
                     f"  R{r+1}C{c+1} = {d}", True, C_SOLVED_FG)
-                self.screen.blit(surf, (x, y))
+                psurf.blit(surf, (x, y))
                 y += surf.get_height() + 1
 
         if step.eliminations:
             y += 4
             surf = self.fonts["panel_body"].render("Eliminated:", True, C_ACCENT)
-            self.screen.blit(surf, (x, y))
+            psurf.blit(surf, (x, y))
             y += surf.get_height() + 2
             by_cell: dict = {}
             for r, c, d in step.eliminations:
                 by_cell.setdefault((r, c), []).append(d)
-            items = list(by_cell.items())
-            for (r, c), ds in items[:6]:
+            for (r, c), ds in by_cell.items():
                 txt = f"  R{r+1}C{c+1}: {{{','.join(str(d) for d in sorted(ds))}}}"
                 surf = self.fonts["panel_body"].render(txt, True, C_SOLVED_FG)
-                self.screen.blit(surf, (x, y))
-                y += surf.get_height() + 1
-            if len(items) > 6:
-                surf = self.fonts["panel_body"].render(
-                    f"  …+{len(items)-6} more", True, C_CAND_FG)
-                self.screen.blit(surf, (x, y))
+                psurf.blit(surf, (x, y))
                 y += surf.get_height() + 1
 
         y += 8
-        pygame.draw.line(self.screen, C_PANEL_LINE,
-                         (PANEL_X + 6, y), (PANEL_X + PANEL_W - 6, y), 1)
+        pygame.draw.line(psurf, C_PANEL_LINE, (6, y), (PANEL_W - 6, y), 1)
         y += 6
-        self._draw_text_wrapped(step.explanation, x, y, max_w,
-                                self.fonts["panel_body"], C_SOLVED_FG)
+        y = self._draw_text_wrapped(psurf, step.explanation, x, y, max_w,
+                                    self.fonts["panel_body"], C_SOLVED_FG)
+        return y
 
-    def _draw_panel_input_mode(self, x: int, y: int, max_w: int):
+    def _draw_panel_input_mode(self, psurf: pygame.Surface, x: int, y: int, max_w: int) -> int:
         surf = self.fonts["panel_body"].render("INPUT MODE", True, C_ACCENT)
-        self.screen.blit(surf, (x, y))
+        psurf.blit(surf, (x, y))
         y += surf.get_height() + 6
 
         # Live validity indicator
@@ -700,11 +750,10 @@ class SudokuApp:
             surf = self.fonts["panel_body"].render(msg, True, C_WARN)
         else:
             surf = self.fonts["panel_body"].render("  Board is valid", True, C_OK)
-        self.screen.blit(surf, (x, y))
+        psurf.blit(surf, (x, y))
         y += surf.get_height() + 10
 
-        pygame.draw.line(self.screen, C_PANEL_LINE,
-                         (PANEL_X + 6, y), (PANEL_X + PANEL_W - 6, y), 1)
+        pygame.draw.line(psurf, C_PANEL_LINE, (6, y), (PANEL_W - 6, y), 1)
         y += 8
 
         for text, color in [
@@ -716,11 +765,13 @@ class SudokuApp:
             ("ESC   cancel",           C_SOLVED_FG),
         ]:
             surf = self.fonts["panel_body"].render(text, True, color)
-            self.screen.blit(surf, (x, y))
+            psurf.blit(surf, (x, y))
             y += surf.get_height() + 3
+        return y
 
-    def _draw_text_wrapped(self, text: str, x: int, y: int,
+    def _draw_text_wrapped(self, target, text: str, x: int, y: int,
                            max_w: int, font, color) -> int:
+        """Word-wrap text onto target surface (screen or off-screen). Returns final y."""
         words = text.split()
         line = ""
         for word in words:
@@ -730,12 +781,12 @@ class SudokuApp:
             else:
                 if line:
                     surf = font.render(line, True, color)
-                    self.screen.blit(surf, (x, y))
+                    target.blit(surf, (x, y))
                     y += surf.get_height() + 1
                 line = word
         if line:
             surf = font.render(line, True, color)
-            self.screen.blit(surf, (x, y))
+            target.blit(surf, (x, y))
             y += surf.get_height() + 1
         return y
 
@@ -777,6 +828,11 @@ class SudokuApp:
                     return False
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 self.handle_click(event.pos)
+            elif event.type == pygame.MOUSEWHEEL:
+                # Only scroll when mouse is over the panel
+                mx, my = pygame.mouse.get_pos()
+                if PANEL_X <= mx < PANEL_X + PANEL_W and GRID_Y <= my < GRID_Y + GRID_PX:
+                    self.panel_scroll = max(0, self.panel_scroll - event.y * 20)
         return True
 
     def handle_key(self, event) -> bool:
@@ -1000,7 +1056,7 @@ class SudokuApp:
             surf = self.fonts["panel_title"].render(title, True, C_GIVEN_FG)
             self.screen.blit(surf, (dx + 14, dy + 10))
 
-            self._draw_text_wrapped(message, dx + 14, dy + 38,
+            self._draw_text_wrapped(self.screen, message, dx + 14, dy + 38,
                                     DW - 28, self.fonts["panel_body"], C_SOLVED_FG)
 
             mouse = pygame.mouse.get_pos()
