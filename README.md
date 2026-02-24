@@ -72,14 +72,29 @@ python battle.py   # Space shooter
 
 A human-strategy Sudoku solver with both a terminal tutor and a full pygame GUI.
 
-- `sudoku_gui.py`: Pygame GUI with interactive step-by-step navigation
-  - 9×9 grid with candidate (pencilmark) display
-  - Step-by-step navigation with colour-coded strategy highlights (placement/elimination/house)
-  - Live conflict detection — invalid cells highlighted in red as you type
-  - Puzzle input mode and load/save via in-window dialogs
+- `sudoku_gui.py`: Feature-rich pygame GUI
+  - 9×9 grid with candidate (pencilmark) display and manual right-click pencilmark editing
+  - Step-by-step navigation with colour-coded highlights: placement (green), elimination (orange), house (yellow), pattern/strategy cells (purple), peer cells (blue tint)
+  - **Dark mode** (D key) — full palette swap
+  - **Digit filter** (1–9 keys) — dim cells not containing that candidate
+  - **Progressive hints** (H key, 4 levels): area → digit → strategy name → full explanation
+  - **Play mode** (P key) — solve the puzzle yourself; cells go green/red for correct/wrong
+  - **Puzzle library** (PUZZLE button) — 28 built-in graded puzzles (Tier 1–4) with Generate option
+  - **Puzzle generator** — random unique puzzles rated by strategy difficulty
+  - **Timeline scrubber** — click to jump to any step
+  - **Export PNG** (Ctrl+E) — save the current board view
+  - **Undo/redo** in input mode (Ctrl+Z / Ctrl+Y)
+  - Persistent config (`~/.sudokurc`): dark mode, last puzzle path
+  - Async step computation — UI stays responsive while solving
   - Auto-play, brute-force fallback when human strategies are exhausted
-- `sudoku_tutor.py`: Terminal solver — same human strategies with plain-English explanations
-  - Strategies from beginner (Full House, Naked/Hidden Singles) through advanced (X-Wing, Swordfish, Y-Wing, XYZ-Wing, Simple Coloring)
+- `sudoku_tutor.py`: Terminal solver with plain-English explanations
+  - Tier 1: Full House, Hidden/Naked Singles
+  - Tier 2: Naked/Hidden Pairs/Triples/Quads, Locked Candidates
+  - Tier 3: X-Wing, Swordfish, Y-Wing, XYZ-Wing, Simple Coloring
+  - Tier 4: Unique Rectangle, W-Wing, Skyscraper, 2-String Kite, BUG+1
+  - Tier 5: Finned X-Wing, XY-Chain
+- `puzzles.py`: 28 built-in graded puzzles (7 per tier 1–4)
+- `sudoku_generator.py`: Random puzzle generator with uniqueness guarantee and difficulty rating
 - `sudosolv.py`: Simple backtracking solver
 
 **Quick start:**
