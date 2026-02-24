@@ -70,16 +70,25 @@ python battle.py   # Space shooter
 
 ### 🧩 [Sudoku Solver](./sudokusolver)
 
-A human-strategy Sudoku solver and interactive tutor.
+A human-strategy Sudoku solver with both a terminal tutor and a full pygame GUI.
 
-- `sudoku_tutor.py`: Solves puzzles using human-like strategies (no backtracking) with step-by-step plain-English explanations
-  - Strategies from beginner (Naked/Hidden Singles) through advanced (X-Wing, Y-Wing, Simple Coloring)
+- `sudoku_gui.py`: Pygame GUI with interactive step-by-step navigation
+  - 9×9 grid with candidate (pencilmark) display
+  - Step-by-step navigation with colour-coded strategy highlights (placement/elimination/house)
+  - Live conflict detection — invalid cells highlighted in red as you type
+  - Puzzle input mode and load/save via in-window dialogs
+  - Auto-play, brute-force fallback when human strategies are exhausted
+- `sudoku_tutor.py`: Terminal solver — same human strategies with plain-English explanations
+  - Strategies from beginner (Full House, Naked/Hidden Singles) through advanced (X-Wing, Swordfish, Y-Wing, XYZ-Wing, Simple Coloring)
 - `sudosolv.py`: Simple backtracking solver
 
 **Quick start:**
 ```bash
 cd sudokusolver
-python sudoku_tutor.py sd0.txt
+pip install pygame
+python sudoku_gui.py            # GUI (loads sd0.txt by default)
+python sudoku_gui.py puzzle.txt # GUI with a specific puzzle
+python sudoku_tutor.py sd0.txt  # terminal tutor
 python sudoku_tutor.py sd0.txt --auto   # non-interactive full log
 ```
 
