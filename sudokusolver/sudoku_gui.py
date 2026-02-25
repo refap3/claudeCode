@@ -575,6 +575,9 @@ class SudokuApp:
             else:
                 bg = p["bg"]
         else:
+            if not self.grid_states:
+                pygame.draw.rect(self.screen, p["bg"], rect)
+                return
             grid = self.grid_states[self.step_idx]
             if (r, c) in self.conflict_cells:
                 bg = p["conflict_bg"]
