@@ -282,6 +282,61 @@ def _load_fonts() -> dict:
         "small":       make(11),
     }
 
+def _make_icon() -> pygame.Surface:
+    """Return a 64×64 surface that looks like a partially-filled Sudoku grid."""
+    SIZE = 64
+    PAD  = 4
+    CELL = (SIZE - 2 * PAD) // 9   # 6 px per cell
+
+    BG         = ( 18,  26,  46)   # dark navy background
+    CELL_BG    = ( 28,  42,  72)   # cell interior
+    THIN_LINE  = ( 80,  95, 130)   # minor grid lines
+    THICK_LINE = (200, 210, 240)   # box / border lines
+    FILLED     = ( 55, 105, 190)   # solved / pencilmark cell
+    GIVEN      = (210, 160,  40)   # given (gold) cell
+
+    surf = pygame.Surface((SIZE, SIZE))
+    surf.fill(BG)
+
+    # Cell interiors
+    for r in range(9):
+        for c in range(9):
+            pygame.draw.rect(
+                surf, CELL_BG,
+                (PAD + c * CELL + 1, PAD + r * CELL + 1, CELL - 1, CELL - 1),
+            )
+
+    # A sparse but plausible given/filled pattern
+    givens = {(0, 0), (0, 5), (2, 3), (4, 4), (6, 1), (6, 7), (8, 4), (8, 8)}
+    filled = {
+        (0, 2), (0, 7), (1, 4), (1, 6),
+        (3, 1), (3, 5), (3, 8),
+        (5, 0), (5, 3), (5, 7),
+        (7, 2), (7, 5), (8, 0),
+    }
+    for r, c in givens:
+        pygame.draw.rect(
+            surf, GIVEN,
+            (PAD + c * CELL + 1, PAD + r * CELL + 1, CELL - 1, CELL - 1),
+        )
+    for r, c in filled:
+        pygame.draw.rect(
+            surf, FILLED,
+            (PAD + c * CELL + 1, PAD + r * CELL + 1, CELL - 1, CELL - 1),
+        )
+
+    # Grid lines (thick at box boundaries, thin elsewhere)
+    for i in range(10):
+        is_box  = (i % 3 == 0)
+        colour  = THICK_LINE if is_box else THIN_LINE
+        width   = 2          if is_box else 1
+        px = PAD + i * CELL
+        pygame.draw.line(surf, colour, (PAD, px),  (PAD + 9 * CELL, px),  width)
+        pygame.draw.line(surf, colour, (px,  PAD), (px, PAD + 9 * CELL),  width)
+
+    return surf
+
+
 # ── Rate puzzle difficulty ────────────────────────────────────────────────────
 def rate_puzzle(steps: list[Step]) -> int:
     if not steps:
@@ -300,6 +355,7 @@ class SudokuApp:
         pygame.init()
         self.screen = pygame.display.set_mode((WIN_W, WIN_H))
         pygame.display.set_caption("Sudoku Tutor")
+        pygame.display.set_icon(_make_icon())
         self.clock  = pygame.time.Clock()
         self.fonts  = _load_fonts()
 
