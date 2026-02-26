@@ -1,3 +1,4 @@
+import os
 import pygame
 import random
 import sys
@@ -5,25 +6,11 @@ import sys
 # Initialize pygame
 pygame.init()
 
-# Window icon — tiny top-down car drawn on a 32×32 surface
-def _make_icon():
-    s = pygame.Surface((32, 32), pygame.SRCALPHA)
-    # Road background
-    s.fill((50, 50, 50))
-    # Wheels
-    for wx, wy in [(2, 6), (22, 6), (2, 20), (22, 20)]:
-        pygame.draw.rect(s, (20, 20, 20), (wx, wy, 8, 7), border_radius=2)
-    # Body
-    body = [(10, 2), (22, 2), (26, 10), (26, 28), (6, 28), (6, 10)]
-    pygame.draw.polygon(s, (220, 20, 20), body)
-    pygame.draw.polygon(s, (160, 0, 0), body, 1)
-    # Windscreen
-    pygame.draw.rect(s, (100, 180, 255), (11, 8, 10, 7), border_radius=2)
-    # Centre stripe
-    pygame.draw.rect(s, (255, 255, 255), (15, 2, 2, 26))
-    return s
-
-pygame.display.set_icon(_make_icon())
+# Window icon — load from file, scale to 64×64
+_icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
+_icon = pygame.image.load(_icon_path)
+_icon = pygame.transform.smoothscale(_icon, (64, 64))
+pygame.display.set_icon(_icon)
 
 # Screen dimensions
 WIDTH, HEIGHT = 800, 600
