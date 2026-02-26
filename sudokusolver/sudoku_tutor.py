@@ -16,7 +16,7 @@ Strategies implemented (in order of application):
   Tier 1 — Beginner:    Full House, Naked Single, Hidden Single
   Tier 2 — Intermediate: Naked/Hidden Pairs/Triples/Quads,
                           Pointing Pairs/Triples, Box-Line Reduction
-  Tier 3 — Advanced:    X-Wing, Swordfish, Y-Wing, XYZ-Wing, Simple Coloring
+  Tier 3 — Advanced:    X-Wing, Swordfish, Jellyfish, Squirmbag, Y-Wing, XYZ-Wing, Simple Coloring
   Tier 4 — Expert:      Unique Rectangle, W-Wing, Skyscraper,
                           2-String Kite, BUG+1
   Tier 5 — Master:      Finned X-Wing, XY-Chain
@@ -710,6 +710,182 @@ def find_swordfish(grid: Grid) -> Optional[Step]:
                             f"Digit {d} forms a Swordfish across columns {cols_s}: "
                             f"each column only has {d} within rows {rows_s}. So {d} "
                             f"is impossible everywhere else in those 3 rows."
+                        ),
+                    )
+    return None
+
+
+def find_jellyfish(grid: Grid) -> Optional[Step]:
+    """
+    Jellyfish: A digit appears in 2 to 4 cells in each of 4 rows, and all
+    those cells are confined to the same 4 columns. Eliminates the digit
+    from all other cells in those 4 columns.
+    """
+    for d in range(1, 10):
+        # Rows as base
+        row_cols: dict = {}
+        for r in range(9):
+            cols = set(
+                c for c in range(9)
+                if grid.values[r][c] == 0 and d in grid.candidates[r][c]
+            )
+            if 2 <= len(cols) <= 4:
+                row_cols[r] = cols
+
+        for r1, r2, r3, r4 in combinations(row_cols, 4):
+            cover = row_cols[r1] | row_cols[r2] | row_cols[r3] | row_cols[r4]
+            if len(cover) == 4:
+                eliminations = [
+                    (r, c, d)
+                    for c in cover
+                    for r in range(9)
+                    if r not in (r1, r2, r3, r4)
+                    and grid.values[r][c] == 0
+                    and d in grid.candidates[r][c]
+                ]
+                if eliminations:
+                    rows_s = f"{r1+1},{r2+1},{r3+1},{r4+1}"
+                    cols_s = ",".join(str(c+1) for c in sorted(cover))
+                    return Step(
+                        strategy="Jellyfish",
+                        eliminations=eliminations,
+                        pattern_cells=[
+                            (r, c) for r in (r1, r2, r3, r4) for c in cover
+                            if grid.values[r][c] == 0 and d in grid.candidates[r][c]
+                        ],
+                        explanation=(
+                            f"Digit {d} forms a Jellyfish across rows {rows_s}: in "
+                            f"each of these rows, {d} only appears within columns "
+                            f"{cols_s}. These 4 rows and 4 columns form a locked "
+                            f"pattern where {d} must occupy one cell per row and one "
+                            f"per column. Therefore {d} is impossible everywhere else "
+                            f"in columns {cols_s}."
+                        ),
+                    )
+
+        # Columns as base
+        col_rows: dict = {}
+        for c in range(9):
+            rows = set(
+                r for r in range(9)
+                if grid.values[r][c] == 0 and d in grid.candidates[r][c]
+            )
+            if 2 <= len(rows) <= 4:
+                col_rows[c] = rows
+
+        for c1, c2, c3, c4 in combinations(col_rows, 4):
+            cover = col_rows[c1] | col_rows[c2] | col_rows[c3] | col_rows[c4]
+            if len(cover) == 4:
+                eliminations = [
+                    (r, c, d)
+                    for r in cover
+                    for c in range(9)
+                    if c not in (c1, c2, c3, c4)
+                    and grid.values[r][c] == 0
+                    and d in grid.candidates[r][c]
+                ]
+                if eliminations:
+                    cols_s = f"{c1+1},{c2+1},{c3+1},{c4+1}"
+                    rows_s = ",".join(str(r+1) for r in sorted(cover))
+                    return Step(
+                        strategy="Jellyfish",
+                        eliminations=eliminations,
+                        pattern_cells=[
+                            (r, c) for c in (c1, c2, c3, c4) for r in cover
+                            if grid.values[r][c] == 0 and d in grid.candidates[r][c]
+                        ],
+                        explanation=(
+                            f"Digit {d} forms a Jellyfish across columns {cols_s}: "
+                            f"each column only has {d} within rows {rows_s}. So {d} "
+                            f"is impossible everywhere else in those 4 rows."
+                        ),
+                    )
+    return None
+
+
+def find_squirmbag(grid: Grid) -> Optional[Step]:
+    """
+    Squirmbag: A digit appears in 2 to 5 cells in each of 5 rows, and all
+    those cells are confined to the same 5 columns. Eliminates the digit
+    from all other cells in those 5 columns.
+    """
+    for d in range(1, 10):
+        # Rows as base
+        row_cols: dict = {}
+        for r in range(9):
+            cols = set(
+                c for c in range(9)
+                if grid.values[r][c] == 0 and d in grid.candidates[r][c]
+            )
+            if 2 <= len(cols) <= 5:
+                row_cols[r] = cols
+
+        for r1, r2, r3, r4, r5 in combinations(row_cols, 5):
+            cover = row_cols[r1] | row_cols[r2] | row_cols[r3] | row_cols[r4] | row_cols[r5]
+            if len(cover) == 5:
+                eliminations = [
+                    (r, c, d)
+                    for c in cover
+                    for r in range(9)
+                    if r not in (r1, r2, r3, r4, r5)
+                    and grid.values[r][c] == 0
+                    and d in grid.candidates[r][c]
+                ]
+                if eliminations:
+                    rows_s = f"{r1+1},{r2+1},{r3+1},{r4+1},{r5+1}"
+                    cols_s = ",".join(str(c+1) for c in sorted(cover))
+                    return Step(
+                        strategy="Squirmbag",
+                        eliminations=eliminations,
+                        pattern_cells=[
+                            (r, c) for r in (r1, r2, r3, r4, r5) for c in cover
+                            if grid.values[r][c] == 0 and d in grid.candidates[r][c]
+                        ],
+                        explanation=(
+                            f"Digit {d} forms a Squirmbag across rows {rows_s}: in "
+                            f"each of these rows, {d} only appears within columns "
+                            f"{cols_s}. These 5 rows and 5 columns form a locked "
+                            f"pattern where {d} must occupy one cell per row and one "
+                            f"per column. Therefore {d} is impossible everywhere else "
+                            f"in columns {cols_s}."
+                        ),
+                    )
+
+        # Columns as base
+        col_rows: dict = {}
+        for c in range(9):
+            rows = set(
+                r for r in range(9)
+                if grid.values[r][c] == 0 and d in grid.candidates[r][c]
+            )
+            if 2 <= len(rows) <= 5:
+                col_rows[c] = rows
+
+        for c1, c2, c3, c4, c5 in combinations(col_rows, 5):
+            cover = col_rows[c1] | col_rows[c2] | col_rows[c3] | col_rows[c4] | col_rows[c5]
+            if len(cover) == 5:
+                eliminations = [
+                    (r, c, d)
+                    for r in cover
+                    for c in range(9)
+                    if c not in (c1, c2, c3, c4, c5)
+                    and grid.values[r][c] == 0
+                    and d in grid.candidates[r][c]
+                ]
+                if eliminations:
+                    cols_s = f"{c1+1},{c2+1},{c3+1},{c4+1},{c5+1}"
+                    rows_s = ",".join(str(r+1) for r in sorted(cover))
+                    return Step(
+                        strategy="Squirmbag",
+                        eliminations=eliminations,
+                        pattern_cells=[
+                            (r, c) for c in (c1, c2, c3, c4, c5) for r in cover
+                            if grid.values[r][c] == 0 and d in grid.candidates[r][c]
+                        ],
+                        explanation=(
+                            f"Digit {d} forms a Squirmbag across columns {cols_s}: "
+                            f"each column only has {d} within rows {rows_s}. So {d} "
+                            f"is impossible everywhere else in those 5 rows."
                         ),
                     )
     return None
@@ -1488,6 +1664,8 @@ ALL_STRATEGIES = [
     ("Box-Line Reduction", find_box_line_reduction),
     ("X-Wing",             find_x_wing),
     ("Swordfish",          find_swordfish),
+    ("Jellyfish",          find_jellyfish),
+    ("Squirmbag",          find_squirmbag),
     ("Y-Wing",             find_y_wing),
     ("XYZ-Wing",           find_xyz_wing),
     ("Simple Coloring",    find_simple_coloring),

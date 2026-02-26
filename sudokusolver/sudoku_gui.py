@@ -174,7 +174,7 @@ STRATEGY_TIER: dict[str, int] = {
     "Naked Pair": 2, "Hidden Pair": 2, "Naked Triple": 2,
     "Hidden Triple": 2, "Naked Quad": 2, "Hidden Quad": 2,
     "Pointing Pairs": 2, "Box-Line Reduction": 2,
-    "X-Wing": 3, "Swordfish": 3, "Y-Wing": 3, "XYZ-Wing": 3,
+    "X-Wing": 3, "Swordfish": 3, "Jellyfish": 3, "Squirmbag": 3, "Y-Wing": 3, "XYZ-Wing": 3,
     "Simple Coloring": 3,
     "Unique Rectangle": 4, "W-Wing": 4, "Skyscraper": 4,
     "2-String Kite": 4, "BUG+1": 4,

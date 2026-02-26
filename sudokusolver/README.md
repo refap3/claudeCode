@@ -141,7 +141,7 @@ Press Enter to advance, `q` to quit, or pass `--auto` to print everything withou
 |------|----------|
 | 1 | Full House, Hidden Single, Naked Single |
 | 2 | Naked/Hidden Pairs, Triples, Quads; Locked Candidates (Pointing, Claiming) |
-| 3 | X-Wing, Swordfish, Y-Wing, XYZ-Wing, Simple Coloring |
+| 3 | X-Wing, Swordfish, Jellyfish, Squirmbag, Y-Wing, XYZ-Wing, Simple Coloring |
 | 4 | Unique Rectangle, W-Wing, Skyscraper, 2-String Kite, BUG+1 |
 | 5 | Finned X-Wing, XY-Chain |
 
