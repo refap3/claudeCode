@@ -17,7 +17,7 @@ Keys (input mode):
 
 Keys (play mode):
     1–9  fill digit  0/Del  erase        Arrows  move   H  hint
-    ESC  exit play mode
+    C                toggle candidates   ESC  exit play mode
 
 Right-click any cell (solve mode): toggle pencilmarks
 """
@@ -707,6 +707,16 @@ class SudokuApp:
                 color = p["play_fg"]
             surf = self.fonts["digit"].render(str(pv), True, color)
             self.screen.blit(surf, surf.get_rect(center=rect.center))
+        elif self.show_candidates:
+            cands = _bt_candidates(self.play_values, r, c)  # type: ignore[arg-type]
+            for d in range(1, 10):
+                if d in cands:
+                    dc = (d - 1) % 3
+                    dr = (d - 1) // 3
+                    cx = rect.x + dc * SUBCELL_W + SUBCELL_W // 2
+                    cy = rect.y + dr * SUBCELL_H + SUBCELL_H // 2
+                    surf = self.fonts["cand"].render(str(d), True, p["cand_fg"])
+                    self.screen.blit(surf, surf.get_rect(centerx=cx, centery=cy))
 
     def draw_candidates(self, r: int, c: int, cell_rect: pygame.Rect,
                         grid: Grid):
@@ -924,9 +934,10 @@ class SudokuApp:
             s.blit(surf, (x, y)); y += surf.get_height() + 8
 
         pygame.draw.line(s, p["panel_line"], (6, y), (PANEL_W-6, y), 1); y += 8
+        cands_label = "C   hide candidates" if self.show_candidates else "C   show candidates"
         for text in ["1–9   fill digit", "0/Del   erase",
                      "Arrows   move", "H   hint",
-                     "ESC   exit play mode"]:
+                     cands_label, "ESC   exit play mode"]:
             surf = self.fonts["panel_body"].render(text, True, p["solved_fg"])
             s.blit(surf, (x, y)); y += surf.get_height() + 3
 
@@ -1169,6 +1180,8 @@ class SudokuApp:
         k = event.key
         if k == pygame.K_ESCAPE:
             self.exit_play_mode()
+        elif k == pygame.K_c:
+            self.show_candidates = not self.show_candidates
         elif k == pygame.K_h:
             self._advance_hint()
         elif k in (pygame.K_DELETE, pygame.K_BACKSPACE) or event.unicode == "0":
@@ -1630,8 +1643,8 @@ class SudokuApp:
         dim.fill((0, 0, 0, 110))
         background.blit(dim, (0, 0))
 
-        tiers     = list(range(1, 6))
-        cur_tier  = 1
+        tiers     = list(range(0, 6))
+        cur_tier  = 0
         selected  = 0   # index within current tier's list
         scroll    = 0
 
@@ -1665,7 +1678,7 @@ class SudokuApp:
 
         tier_rects = []
         for i, t in enumerate(tiers):
-            tier_rects.append(pygame.Rect(dx + 14 + i * 90, dy + 46, 82, 24))
+            tier_rects.append(pygame.Rect(dx + 14 + i * 76, dy + 46, 68, 24))
 
         while True:
             self.clock.tick(30)
@@ -1749,7 +1762,9 @@ class SudokuApp:
                 is_cur = (t == cur_tier)
                 bg = p2["btn_on"] if is_cur else p2["btn"]
                 pygame.draw.rect(self.screen, bg, tr, border_radius=4)
-                label = f"Tier {t}" if t <= 4 else "Generate"
+                label = ("Tier 0 ★" if t == 0
+                         else f"Tier {t}" if t <= 4
+                         else "Generate")
                 s = self.fonts["btn"].render(label, True, p2["btn_text"])
                 self.screen.blit(s, s.get_rect(center=tr.center))
 
@@ -1765,7 +1780,7 @@ class SudokuApp:
                     "No puzzles (puzzles.py not found)", True, p2["warn"])
                 self.screen.blit(s, (LIST_X + 4, LIST_Y + 8))
             elif cur_tier == 5:
-                msg = ("Click GENERATE to create a Tier 4 puzzle."
+                msg = ("Click GENERATE to create a new puzzle."
                        if HAS_GENERATOR else
                        "sudoku_generator.py not found.")
                 s = self.fonts["panel_body"].render(msg, True, p2["cand_fg"])

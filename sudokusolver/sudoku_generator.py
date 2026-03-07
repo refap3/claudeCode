@@ -7,6 +7,7 @@ randomised backtracking for solution generation and human-strategy
 rating (via sudoku_tutor.py) for difficulty classification.
 
 Difficulty tiers mirror those in sudoku_tutor.py:
+  Tier 0 — Really Easy : Full House and Naked Single only
   Tier 1 — Beginner    : Full House, Naked Single, Hidden Single
   Tier 2 — Intermediate: Naked/Hidden Pairs/Triples/Quads,
                           Pointing Pairs, Box-Line Reduction
@@ -36,11 +37,15 @@ STRATEGY_TIER = {
 # Target empty-cell ranges per tier.  These are tuned empirically and act as
 # a soft guide; the uniqueness constraint is always the hard stop.
 _EMPTY_RANGE = {
+    0: (25, 36),   # Really Easy: very few holes, all naked/full-house solvable
     1: (45, 55),
     2: (55, 62),
     3: (60, 64),
     4: (64, 70),
 }
+
+# Strategy names that qualify as tier-0 (really easy)
+_TIER0_STRATEGY_NAMES = {"Full House", "Naked Single"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -176,6 +181,29 @@ def _rate_difficulty(values: list[list[int]]) -> int:
     return max_tier
 
 
+def _is_tier0(values: list[list[int]]) -> bool:
+    """Return True iff the puzzle is solvable using only Full House and Naked Single.
+
+    These are the two simplest strategies: a cell either is the last empty in
+    its house (Full House) or has exactly one remaining candidate (Naked Single).
+    No candidate-elimination reasoning is required.
+    """
+    grid = Grid(values)
+    tier0_fns = [(name, fn) for name, fn in ALL_STRATEGIES
+                 if name in _TIER0_STRATEGY_NAMES]
+    while not grid.is_solved():
+        found = False
+        for name, fn in tier0_fns:
+            step = fn(grid)
+            if step is not None:
+                grid.apply_step(step)
+                found = True
+                break
+        if not found:
+            return False
+    return True
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Puzzle Generator
 # ─────────────────────────────────────────────────────────────────────────────
@@ -205,7 +233,8 @@ def generate_puzzle(
     Parameters
     ----------
     target_tier:
-        Desired difficulty, 1–4.
+        Desired difficulty, 0–4.  Tier 0 produces really-easy puzzles
+        solvable by Full House and Naked Single alone.
     max_attempts:
         Maximum number of generation attempts before giving up.
     seed:
@@ -251,16 +280,19 @@ def generate_puzzle(
             continue
 
         # Rate the puzzle
-        tier = _rate_difficulty(puzzle)
-
-        # Accept criteria:
-        #   - Exact tier match, or within ±1
-        #   - For tier-4 target: also accept unsolvable-by-strategies (tier==0),
-        #     which means the puzzle genuinely needs expert techniques or guessing
-        acceptable = (
-            abs(tier - target_tier) <= 1
-            or (target_tier >= 4 and tier == 0)
-        )
+        if target_tier == 0:
+            # Tier-0: must be solvable by Full House + Naked Single only
+            acceptable = _is_tier0(puzzle)
+        else:
+            tier = _rate_difficulty(puzzle)
+            # Accept criteria:
+            #   - Exact tier match, or within ±1
+            #   - For tier-4 target: also accept unsolvable-by-strategies (tier==0),
+            #     which means the puzzle genuinely needs expert techniques or guessing
+            acceptable = (
+                abs(tier - target_tier) <= 1
+                or (target_tier >= 4 and tier == 0)
+            )
 
         if acceptable:
             return puzzle
@@ -287,9 +319,13 @@ if __name__ == "__main__":
         sys.exit(1)
 
     empty = sum(1 for r in range(9) for c in range(9) if puzzle[r][c] == 0)
-    rated = _rate_difficulty(puzzle)
+    if tier == 0:
+        rated_str = "0 (Really Easy)" if _is_tier0(puzzle) else "1+ (not pure tier-0)"
+    else:
+        rated = _rate_difficulty(puzzle)
+        rated_str = str(rated)
     print(f"  Empty cells : {empty}")
-    print(f"  Rated tier  : {rated}")
+    print(f"  Rated tier  : {rated_str}")
     print()
     for row in puzzle:
         print(" ".join(str(d) if d else "." for d in row))

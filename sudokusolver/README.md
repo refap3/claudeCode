@@ -9,7 +9,7 @@ The solver uses only logic techniques a human would actually apply — no backtr
 |------|---------|
 | `sudoku_gui.py` | Pygame GUI — step-by-step visual tutor |
 | `sudoku_tutor.py` | Terminal solver with plain-English explanations |
-| `puzzles.py` | 28 built-in graded puzzles (Tier 1–4) |
+| `puzzles.py` | 30 built-in graded puzzles (Tier 0–4) |
 | `sudoku_generator.py` | Random puzzle generator with difficulty rating |
 | `sudosolv.py` | Simple backtracking solver (brute force) |
 | `sd0.txt` – `sd3.txt` | Sample puzzle files |
@@ -94,6 +94,7 @@ Window: 944 × 680 px. Layout: 9×9 grid (left) + info panel (right) + button ba
 | `1`–`9` | Fill digit (green=correct, red=wrong) |
 | `0` / `Del` | Erase |
 | Arrow keys | Move selection |
+| `C` | Toggle candidate (pencilmark) display |
 | `H` | Get a hint |
 | `ESC` | Exit play mode |
 
@@ -135,11 +136,12 @@ Each step prints:
 
 Press Enter to advance, `q` to quit, or pass `--auto` to print everything without prompts.
 
-## Strategies (Tier 1–5)
+## Strategies (Tier 0–5)
 
 | Tier | Strategy |
 |------|----------|
-| 1 | Full House, Hidden Single, Naked Single |
+| 0 | Full House, Naked Single only (no elimination needed) |
+| 1 | Full House, Naked Single, Hidden Single |
 | 2 | Naked/Hidden Pairs, Triples, Quads; Locked Candidates (Pointing, Claiming) |
 | 3 | X-Wing, Swordfish, Jellyfish, Squirmbag, Y-Wing, XYZ-Wing, Simple Coloring |
 | 4 | Unique Rectangle, W-Wing, Skyscraper, 2-String Kite, BUG+1 |
@@ -150,9 +152,9 @@ If no strategy applies, the GUI falls back to a brute-force solver and marks rem
 ## Puzzle Library & Generator
 
 Click **PUZZLE** in the GUI to open the library dialog:
-- Browse 28 built-in puzzles organised by tier (1–4)
+- Browse 30 built-in puzzles organised by tier (0–4); Tier 0 ★ is the "Really Easy" tab
 - Click **Load** to load any puzzle instantly
-- Click **Generate** to create a new random puzzle at the selected tier
+- Click **Generate** to create a new random puzzle at the selected tier (0–4)
 
 The generator uses randomised backtracking to fill a valid grid, then removes cells while maintaining a unique solution, targeting the requested difficulty tier.
 
