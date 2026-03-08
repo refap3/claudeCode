@@ -2,7 +2,7 @@
 # Sudoku Tutor — installer (Mac / Linux)
 #
 # Fresh install (one line, no repo needed):
-#   bash <(curl -fsSL https://raw.githubusercontent.com/refap3/claudeCode/main/sudokusolver/install.sh)
+#   curl -fsSL https://raw.githubusercontent.com/refap3/claudeCode/main/sudokusolver/install.sh | bash
 #
 # Already have the repo:
 #   bash sudokusolver/install.sh      # from repo root
@@ -10,7 +10,7 @@
 #
 # Wipe and reinstall:
 #   rm -rf ~/sudoku-tutor
-#   bash <(curl -fsSL https://raw.githubusercontent.com/refap3/claudeCode/main/sudokusolver/install.sh)
+#   curl -fsSL https://raw.githubusercontent.com/refap3/claudeCode/main/sudokusolver/install.sh | bash
 set -euo pipefail
 
 REPO="https://github.com/refap3/claudeCode"

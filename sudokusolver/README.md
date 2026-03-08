@@ -19,7 +19,7 @@ The solver uses only logic techniques a human would actually apply — no backtr
 **Mac / Linux** — no repo needed, installs to `~/sudoku-tutor`:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/refap3/claudeCode/main/sudokusolver/install.sh)
+curl -fsSL https://raw.githubusercontent.com/refap3/claudeCode/main/sudokusolver/install.sh | bash
 ```
 
 **Windows PowerShell** — installs to `%USERPROFILE%\sudoku-tutor`:
@@ -43,7 +43,7 @@ bash ~/sudoku-tutor/update.sh
 ```bash
 # Mac / Linux
 rm -rf ~/sudoku-tutor
-bash <(curl -fsSL https://raw.githubusercontent.com/refap3/claudeCode/main/sudokusolver/install.sh)
+curl -fsSL https://raw.githubusercontent.com/refap3/claudeCode/main/sudokusolver/install.sh | bash
 
 # Windows PowerShell
 Remove-Item -Recurse -Force ~/sudoku-tutor
