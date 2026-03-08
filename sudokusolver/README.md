@@ -150,6 +150,23 @@ Window: 944 × 680 px. Layout: 9×9 grid (left) + info panel (right) + button ba
 | `Enter` | Solve the entered puzzle |
 | `ESC` | Cancel |
 
+**Create mode** (build a puzzle from scratch via the CREATE button):
+
+| Key | Action |
+|-----|--------|
+| `1`–`9` | Place digit (cursor advances automatically) |
+| `0` / `Del` | Clear cell |
+| Arrow keys | Move selection |
+| `X` | Clear all cells |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
+| `Enter` | Open "Play or Solve?" dialog |
+| `ESC` | Cancel (return to solve mode without loading) |
+
+After pressing Enter a dialog appears:
+- **PLAY (P)** — load the puzzle and enter play mode to solve it yourself
+- **SOLVE (S)** — load the puzzle and let the computer walk through the solution step by step
+- **CANCEL** — stay in create mode
+
 **Play mode** (solve manually):
 
 | Key | Action |

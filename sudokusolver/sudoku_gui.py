@@ -206,6 +206,7 @@ BUTTONS = [
     {"id": "cands",  "label": "CANDS",   "toggle": True},
     {"id": "input",  "label": "INPUT",   "toggle": True},
     {"id": "play",   "label": "PLAY",    "toggle": True},
+    {"id": "create", "label": "CREATE",  "toggle": True},
     {"id": "puzzle", "label": "PUZZLE"},
     {"id": "load",   "label": "LOAD"},
     {"id": "save",   "label": "SAVE"},
@@ -399,7 +400,7 @@ class SudokuApp:
 
         # ── UI state ──────────────────────────────────────────────────────────
         self.dark_mode:       bool            = cfg.get("dark_mode", False)
-        self.mode:            str             = "solve"   # solve | input | play
+        self.mode:            str             = "solve"   # solve | input | play | create
         self.input_values:    list[list[int]] | None = None
         self.input_history:   list            = []    # for undo
         self.input_future:    list            = []    # for redo
@@ -409,6 +410,11 @@ class SudokuApp:
 
         # pencilmark overrides: user_cands[(r,c)] = set of toggled digits
         self.user_cands:      dict           = {}
+
+        # ── Create mode ───────────────────────────────────────────────────────
+        self.create_values:   list[list[int]] | None = None
+        self.create_history:  list            = []
+        self.create_future:   list            = []
 
         # ── Play mode ─────────────────────────────────────────────────────────
         self.play_values:     list[list[int]] | None = None
@@ -637,14 +643,15 @@ class SudokuApp:
             return
 
         # ── Background ────────────────────────────────────────────────────────
-        if self.mode == "input":
+        if self.mode in ("input", "create"):
+            edit_vals = self.input_values if self.mode == "input" else self.create_values
             if (r, c) in self.conflict_cells:
                 bg = p["conflict_bg"]
             elif self.selected == (r, c):
                 bg = p["selected"]
             elif self._is_peer_of_selected(r, c):
                 bg = p["peer_bg"]
-            elif self.input_values[r][c] != 0:   # type: ignore[index]
+            elif edit_vals[r][c] != 0:   # type: ignore[index]
                 bg = p["given_bg"]
             else:
                 bg = p["bg"]
@@ -682,8 +689,9 @@ class SudokuApp:
         pygame.draw.rect(self.screen, bg, rect)
 
         # ── Content ───────────────────────────────────────────────────────────
-        if self.mode == "input":
-            v = self.input_values[r][c]   # type: ignore[index]
+        if self.mode in ("input", "create"):
+            edit_vals = self.input_values if self.mode == "input" else self.create_values
+            v = edit_vals[r][c]   # type: ignore[index]
             if v:
                 surf = self.fonts["digit"].render(str(v), True, p["given_fg"])
                 self.screen.blit(surf, surf.get_rect(center=rect.center))
@@ -798,6 +806,8 @@ class SudokuApp:
             y = self._panel_input(psurf, x, y, max_w)
         elif self.mode == "play":
             y = self._panel_play(psurf, x, y, max_w)
+        elif self.mode == "create":
+            y = self._panel_create(psurf, x, y, max_w)
         else:
             y = self._panel_solve(psurf, x, y, max_w)
 
@@ -1070,10 +1080,11 @@ class SudokuApp:
             rect  = self.btn_rects[bid]
             hover = rect.collidepoint(mouse_pos)
 
-            is_on = ((bid == "auto"  and self.auto_play) or
-                     (bid == "cands" and self.show_candidates) or
-                     (bid == "input" and self.mode == "input") or
-                     (bid == "play"  and self.mode == "play"))
+            is_on = ((bid == "auto"   and self.auto_play) or
+                     (bid == "cands"  and self.show_candidates) or
+                     (bid == "input"  and self.mode == "input") or
+                     (bid == "play"   and self.mode == "play") or
+                     (bid == "create" and self.mode == "create"))
 
             if is_on:
                 bg = p["btn_on_hov"] if hover else p["btn_on"]
@@ -1131,6 +1142,8 @@ class SudokuApp:
             return self._key_input(event, ctrl)
         elif self.mode == "play":
             return self._key_play(event)
+        elif self.mode == "create":
+            return self._key_create(event, ctrl)
         return True
 
     def _key_solve(self, event, ctrl: bool) -> bool:
@@ -1272,6 +1285,56 @@ class SudokuApp:
                 self.selected = (self.selected[0], min(8, self.selected[1]+1))
         return True
 
+    def _key_create(self, event, ctrl: bool) -> bool:
+        k = event.key
+        if k == pygame.K_ESCAPE:
+            self.exit_create_mode(None)
+        elif k == pygame.K_RETURN:
+            if not self.conflict_cells:
+                action = self._create_action_dialog()
+                if action:
+                    self.exit_create_mode(action)
+        elif k == pygame.K_x:
+            self._create_clear_all()
+        elif ctrl and k == pygame.K_z:
+            self._create_undo()
+        elif ctrl and k == pygame.K_y:
+            self._create_redo()
+        elif k in (pygame.K_DELETE, pygame.K_BACKSPACE):
+            if self.selected:
+                self._create_push_history()
+                r, c = self.selected
+                self.create_values[r][c] = 0   # type: ignore[index]
+                self._update_create_conflicts()
+        elif event.unicode == "0":
+            if self.selected:
+                self._create_push_history()
+                r, c = self.selected
+                self.create_values[r][c] = 0   # type: ignore[index]
+                self._update_create_conflicts()
+        elif event.unicode.isdigit() and event.unicode != "0":
+            if self.selected:
+                self._create_push_history()
+                r, c = self.selected
+                self.create_values[r][c] = int(event.unicode)  # type: ignore[index]
+                self._update_create_conflicts()
+                nc = c + 1 if c < 8 else 0
+                nr = r + (1 if c == 8 and r < 8 else 0)
+                self.selected = (nr, nc)
+        elif k == pygame.K_UP:
+            if self.selected:
+                self.selected = (max(0, self.selected[0]-1), self.selected[1])
+        elif k == pygame.K_DOWN:
+            if self.selected:
+                self.selected = (min(8, self.selected[0]+1), self.selected[1])
+        elif k == pygame.K_LEFT:
+            if self.selected:
+                self.selected = (self.selected[0], max(0, self.selected[1]-1))
+        elif k == pygame.K_RIGHT:
+            if self.selected:
+                self.selected = (self.selected[0], min(8, self.selected[1]+1))
+        return True
+
     def handle_click(self, pos: tuple):
         # Button bar
         for btn in BUTTONS:
@@ -1343,6 +1406,11 @@ class SudokuApp:
                 self.exit_play_mode()
             else:
                 self.enter_play_mode()
+        elif bid == "create":
+            if self.mode == "create":
+                self.exit_create_mode(None)
+            else:
+                self.enter_create_mode()
         elif bid == "puzzle":
             self._puzzle_library_dialog()
         elif bid == "load":
@@ -1417,6 +1485,176 @@ class SudokuApp:
         self.input_values = vals
         self.selected     = sel
         self._update_input_conflicts()
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Create mode
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def enter_create_mode(self):
+        self.mode           = "create"
+        self.create_values  = [[0]*9 for _ in range(9)]
+        self.create_history = []
+        self.create_future  = []
+        self.selected       = (0, 0)
+        self.auto_play      = False
+        self.conflict_cells = set()
+
+    def exit_create_mode(self, action: str | None):
+        """action: 'play', 'solve', or None (cancel)."""
+        if action == "play":
+            self.initial_values = [row[:] for row in self.create_values]  # type: ignore
+            self.create_values  = None
+            self.user_cands     = {}
+            self.compute_all_steps_async()
+            self.mode           = "solve"
+            self.selected       = None
+            self.conflict_cells = set()
+            self.enter_play_mode()
+        elif action == "solve":
+            self.initial_values = [row[:] for row in self.create_values]  # type: ignore
+            self.create_values  = None
+            self.user_cands     = {}
+            self.mode           = "solve"
+            self.selected       = None
+            self.conflict_cells = set()
+            self.compute_all_steps_async()
+        else:
+            self.create_values  = None
+            self.mode           = "solve"
+            self.selected       = None
+            self.conflict_cells = validate_board(
+                self.grid_states[self.step_idx].values)
+
+    def _create_clear_all(self):
+        self._create_push_history()
+        self.create_values  = [[0]*9 for _ in range(9)]
+        self.conflict_cells = set()
+
+    def _update_create_conflicts(self):
+        if self.create_values is not None:
+            self.conflict_cells = validate_board(self.create_values)
+
+    def _create_push_history(self):
+        if self.create_values is not None:
+            self.create_history.append(
+                ([row[:] for row in self.create_values], self.selected))
+            self.create_future.clear()
+
+    def _create_undo(self):
+        if not self.create_history:
+            return
+        self.create_future.append(
+            ([row[:] for row in self.create_values], self.selected))  # type: ignore
+        vals, sel        = self.create_history.pop()
+        self.create_values = vals
+        self.selected      = sel
+        self._update_create_conflicts()
+
+    def _create_redo(self):
+        if not self.create_future:
+            return
+        self.create_history.append(
+            ([row[:] for row in self.create_values], self.selected))  # type: ignore
+        vals, sel        = self.create_future.pop()
+        self.create_values = vals
+        self.selected      = sel
+        self._update_create_conflicts()
+
+    def _create_action_dialog(self) -> str | None:
+        """Three-button dialog: Play / Solve / Cancel. Returns 'play', 'solve', or None."""
+        DW, DH = 420, 150
+        dx = (WIN_W - DW) // 2
+        dy = (WIN_H - DH) // 2
+
+        self.draw()
+        background = self.screen.copy()
+        dim = pygame.Surface((WIN_W, WIN_H), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 110))
+        background.blit(dim, (0, 0))
+
+        btn_w, btn_h = 110, 32
+        gap = 12
+        total_w = btn_w * 3 + gap * 2
+        bx = dx + (DW - total_w) // 2
+        by = dy + DH - btn_h - 16
+        play_r   = pygame.Rect(bx,                  by, btn_w, btn_h)
+        solve_r  = pygame.Rect(bx + btn_w + gap,    by, btn_w, btn_h)
+        cancel_r = pygame.Rect(bx + (btn_w + gap)*2, by, btn_w, btn_h)
+
+        while True:
+            self.clock.tick(30)
+            for ev in pygame.event.get():
+                if ev.type == pygame.QUIT:
+                    return None
+                elif ev.type == pygame.KEYDOWN:
+                    if ev.key == pygame.K_ESCAPE:
+                        return None
+                    elif ev.key == pygame.K_p:
+                        return "play"
+                    elif ev.key == pygame.K_s:
+                        return "solve"
+                elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
+                    if play_r.collidepoint(ev.pos):
+                        return "play"
+                    if solve_r.collidepoint(ev.pos):
+                        return "solve"
+                    if cancel_r.collidepoint(ev.pos):
+                        return None
+
+            p = self.p
+            self.screen.blit(background, (0, 0))
+            box = pygame.Rect(dx, dy, DW, DH)
+            pygame.draw.rect(self.screen, p["panel_bg"], box, border_radius=6)
+            pygame.draw.rect(self.screen, p["grid_thick"], box, 2, border_radius=6)
+
+            surf = self.fonts["panel_title"].render(
+                "Puzzle ready — what next?", True, p["given_fg"])
+            self.screen.blit(surf, (dx + 14, dy + 12))
+            surf = self.fonts["panel_body"].render(
+                "P = Play it yourself    S = Let computer solve", True, p["cand_fg"])
+            self.screen.blit(surf, (dx + 14, dy + 40))
+
+            mouse = pygame.mouse.get_pos()
+            for rect, label, base in (
+                (play_r,   "PLAY  (P)",   p["btn_on"]),
+                (solve_r,  "SOLVE  (S)",  p["btn"]),
+                (cancel_r, "CANCEL",      p["btn"]),
+            ):
+                r, g, b = base
+                bg = (min(r+20,255), min(g+20,255), min(b+20,255)) \
+                     if rect.collidepoint(mouse) else base
+                pygame.draw.rect(self.screen, bg, rect, border_radius=4)
+                s = self.fonts["btn"].render(label, True, p["btn_text"])
+                self.screen.blit(s, s.get_rect(center=rect.center))
+
+            pygame.display.flip()
+
+    def _panel_create(self, s: pygame.Surface, x: int, y: int, max_w: int) -> int:
+        p = self.p
+        surf = self.fonts["panel_body"].render("CREATE MODE", True, p["accent"])
+        s.blit(surf, (x, y)); y += surf.get_height() + 6
+
+        filled = sum(1 for r in range(9) for c in range(9)
+                     if self.create_values and self.create_values[r][c] != 0)
+        surf = self.fonts["panel_body"].render(
+            f"  Digits placed: {filled}", True, p["cand_fg"])
+        s.blit(surf, (x, y)); y += surf.get_height() + 4
+
+        if self.conflict_cells:
+            msg = f"  {len(self.conflict_cells)} conflict(s) — fix before continuing"
+            surf = self.fonts["panel_body"].render(msg, True, p["warn"])
+        else:
+            surf = self.fonts["panel_body"].render("  Board is valid", True, p["ok"])
+        s.blit(surf, (x, y)); y += surf.get_height() + 10
+        pygame.draw.line(s, p["panel_line"], (6, y), (PANEL_W-6, y), 1); y += 8
+
+        for text in ["1–9   place digit", "0/Del   clear cell",
+                     "Arrows   move", "X   clear all",
+                     "Ctrl+Z/Y   undo/redo",
+                     "Enter   Play or Solve", "ESC   cancel"]:
+            surf = self.fonts["panel_body"].render(text, True, p["solved_fg"])
+            s.blit(surf, (x, y)); y += surf.get_height() + 3
+        return y
 
     # ──────────────────────────────────────────────────────────────────────────
     # Play mode
@@ -1679,7 +1917,8 @@ class SudokuApp:
         if not path:
             return
         path = self._ensure_txt(path)
-        values = (self.input_values if self.mode == "input" and self.input_values
+        values = (self.input_values  if self.mode == "input"  and self.input_values
+                  else self.create_values if self.mode == "create" and self.create_values
                   else self.grid_states[self.step_idx].values)
         try:
             with open(path, "w") as f:
