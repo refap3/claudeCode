@@ -14,40 +14,64 @@ The solver uses only logic techniques a human would actually apply — no backtr
 | `sudosolv.py` | Simple backtracking solver (brute force) |
 | `sd0.txt` – `sd3.txt` | Sample puzzle files |
 
-## Quick Start
+## Install (one line)
 
-**One-time install** (creates an isolated `.venv/` inside `sudokusolver/`):
+**Mac / Linux** — no repo needed, installs to `~/sudoku-tutor`:
 
 ```bash
-# Mac / Linux  — run from the repo root
+bash <(curl -fsSL https://raw.githubusercontent.com/refap3/claudeCode/main/sudokusolver/install.sh)
+```
+
+**Windows PowerShell** — installs to `%USERPROFILE%\sudoku-tutor`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iex (irm 'https://raw.githubusercontent.com/refap3/claudeCode/main/sudokusolver/install.ps1')"
+```
+
+## Launch / Update
+
+```bash
+bash ~/sudoku-tutor/launch.sh        # Mac / Linux
+bash ~/sudoku-tutor/update.sh
+
+%USERPROFILE%\sudoku-tutor\launch.bat  # Windows
+%USERPROFILE%\sudoku-tutor\update.bat
+```
+
+## Wipe and reinstall
+
+```bash
+# Mac / Linux
+rm -rf ~/sudoku-tutor
+bash <(curl -fsSL https://raw.githubusercontent.com/refap3/claudeCode/main/sudokusolver/install.sh)
+
+# Windows PowerShell
+Remove-Item -Recurse -Force ~/sudoku-tutor
+powershell -ExecutionPolicy Bypass -Command "iex (irm 'https://raw.githubusercontent.com/refap3/claudeCode/main/sudokusolver/install.ps1')"
+```
+
+## If you already have the repo
+
+```bash
+# Mac / Linux — from repo root
 bash sudokusolver/install.sh
+bash sudokusolver/launch.sh
+bash sudokusolver/update.sh
 
-# Windows — run from the repo root
+# Windows — from repo root
 sudokusolver\install.bat
+sudokusolver\launch.bat
+sudokusolver\update.bat
 ```
 
-**Launch:**
-
-```bash
-bash sudokusolver/launch.sh        # Mac / Linux
-sudokusolver\launch.bat            # Windows
-```
-
-**Update** (git pull + refresh deps):
-
-```bash
-bash sudokusolver/update.sh        # Mac / Linux
-sudokusolver\update.bat            # Windows
-```
-
-**Manual / no venv:**
+## Manual (no venv)
 
 ```bash
 pip install pygame
 python sudoku_gui.py           # GUI, loads sd0.txt by default
 python sudoku_gui.py sd0.txt   # GUI with explicit file
 python sudoku_tutor.py sd0.txt # terminal mode, interactive
-python sudoku_tutor.py sd0.txt --auto  # terminal mode, non-interactive full log
+python sudoku_tutor.py sd0.txt --auto  # terminal mode, non-interactive
 ```
 
 ## Puzzle File Format
