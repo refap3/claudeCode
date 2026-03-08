@@ -61,7 +61,29 @@ echo "Installing dependencies ..."
 .venv/bin/pip install -r requirements.txt -q
 chmod +x launch.sh update.sh
 
+# Launcher scripts (always written so re-running repairs missing launchers)
+BIN="${SUDOKU_BIN:-$HOME/.local/bin}"
+mkdir -p "$BIN"
+
+cat > "$BIN/sudoku" <<EOF
+#!/usr/bin/env bash
+"$DEST/.venv/bin/python" "$DEST/sudoku_gui.py" "\$@" > /dev/null 2>&1 &
+disown
+EOF
+chmod +x "$BIN/sudoku"
+
+cat > "$BIN/sudoku-update" <<EOF
+#!/usr/bin/env bash
+exec bash "$DEST/update.sh"
+EOF
+chmod +x "$BIN/sudoku-update"
+echo "Launchers: $BIN/sudoku, $BIN/sudoku-update"
+
+# PATH hint if needed
+case ":${PATH}:" in
+    *":$BIN:"*) ;;
+    *) echo "" && echo "NOTE: Add to your shell profile:  export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
+esac
+
 echo ""
-echo "Done!"
-echo "  Launch: bash \"$DEST/launch.sh\""
-echo "  Update: bash \"$DEST/update.sh\""
+echo "Done. Run: sudoku"

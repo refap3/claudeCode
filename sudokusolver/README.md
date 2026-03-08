@@ -31,6 +31,19 @@ powershell -ExecutionPolicy Bypass -Command "iex (irm 'https://raw.githubusercon
 ## Launch / Update
 
 ```bash
+sudoku               # launch (detached — terminal stays free)
+sudoku-update        # pull latest code and dependencies
+```
+
+Launchers are written to `~/.local/bin/` by the installer. If that directory is not on your `PATH`, add this to `~/.zshrc` or `~/.bashrc`:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Or run directly from the install folder:
+
+```bash
 bash ~/sudoku-tutor/launch.sh        # Mac / Linux
 bash ~/sudoku-tutor/update.sh
 
