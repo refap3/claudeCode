@@ -16,6 +16,32 @@ The solver uses only logic techniques a human would actually apply — no backtr
 
 ## Quick Start
 
+**One-time install** (creates an isolated `.venv/` inside `sudokusolver/`):
+
+```bash
+# Mac / Linux  — run from the repo root
+bash sudokusolver/install.sh
+
+# Windows — run from the repo root
+sudokusolver\install.bat
+```
+
+**Launch:**
+
+```bash
+bash sudokusolver/launch.sh        # Mac / Linux
+sudokusolver\launch.bat            # Windows
+```
+
+**Update** (git pull + refresh deps):
+
+```bash
+bash sudokusolver/update.sh        # Mac / Linux
+sudokusolver\update.bat            # Windows
+```
+
+**Manual / no venv:**
+
 ```bash
 pip install pygame
 python sudoku_gui.py           # GUI, loads sd0.txt by default
@@ -91,12 +117,19 @@ Window: 944 × 680 px. Layout: 9×9 grid (left) + info panel (right) + button ba
 
 | Key | Action |
 |-----|--------|
-| `1`–`9` | Fill digit (green=correct, red=wrong) |
-| `0` / `Del` | Erase |
+| `1`–`9` | Fill digit in **fill mode** (green=correct, red=wrong) |
+| `1`–`9` | Toggle pencilmark candidate in **mark mode** (amber) |
+| `0` / `Del` | Erase digit (fill mode) / clear cell's user marks (mark mode) |
+| `M` | Toggle between fill mode and mark mode |
+| `K` | Clear all user-entered pencilmarks (revert to auto-computed) |
 | Arrow keys | Move selection |
 | `C` | Toggle candidate (pencilmark) display |
 | `H` | Get a hint |
 | `ESC` | Exit play mode |
+
+Auto-computed candidates are shown in gray; cells where you've entered your own marks show amber so you always know which is which.
+
+**Drop an image** of a sudoku puzzle onto the window to extract it automatically via Claude API (`pip install anthropic Pillow` + `ANTHROPIC_API_KEY` required).
 
 **Right-click** any cell in solve mode: toggle a pencilmark for the current filter digit.
 
@@ -161,4 +194,8 @@ The generator uses randomised backtracking to fill a valid grid, then removes ce
 ## Requirements
 
 - Python 3.8+
-- `pygame` (GUI only) — `pip install pygame`
+- `pygame` — installed automatically by `install.sh` / `install.bat`
+
+**Optional** (for future screenshot-import feature):
+- `anthropic` — `pip install anthropic` + set `ANTHROPIC_API_KEY`
+- `Pillow` — `pip install Pillow`

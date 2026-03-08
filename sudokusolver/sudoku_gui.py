@@ -16,9 +16,12 @@ Keys (input mode):
     Ctrl+Z  undo     Ctrl+Y  redo        Enter  solve    ESC  cancel
 
 Keys (play mode):
-    1–9  fill digit  0/Del  erase        Arrows  move   H  hint
-    C                toggle candidates   ESC  exit play mode
+    1–9  fill digit / toggle mark (in mark mode)
+    0/Del  erase / clear marks   Arrows  move   H  hint
+    M    toggle fill/mark mode   K  clear all user marks
+    C    toggle candidates       ESC  exit play mode
 
+Drop an image file onto the window to extract a puzzle via Claude API.
 Right-click any cell (solve mode): toggle pencilmarks
 """
 
@@ -44,6 +47,19 @@ try:
     HAS_GENERATOR = True
 except ImportError:
     HAS_GENERATOR = False
+
+try:
+    import anthropic as _anthropic
+    HAS_ANTHROPIC = True
+except ImportError:
+    HAS_ANTHROPIC = False
+
+try:
+    from PIL import Image as _PILImage
+    import base64 as _base64, io as _io
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
 
 # ── Config ────────────────────────────────────────────────────────────────────
 CONFIG_PATH = Path.home() / ".sudokurc"
@@ -399,6 +415,8 @@ class SudokuApp:
         self.play_solution:   list[list[int]] | None = None
         self.hint_level:      int             = 0    # 0=none shown; advances 0→4→0
         self.hint_step_idx:   int             = -1   # which step hint refers to
+        self.play_user_cands: dict            = {}   # (r,c) -> set of user-entered candidates
+        self.play_cand_mode:  bool            = False # True=mark mode, False=fill mode
 
         self.btn_rects: dict = {}
         self._compute_btn_rects()
@@ -698,6 +716,10 @@ class SudokuApp:
             bg = p["bg"]
         pygame.draw.rect(self.screen, bg, rect)
 
+        # Mark-mode border on selected cell
+        if self.play_cand_mode and self.selected == (r, c):
+            pygame.draw.rect(self.screen, p["accent"], rect, 3)
+
         if pv:
             if is_given:
                 color = p["given_fg"]
@@ -708,14 +730,17 @@ class SudokuApp:
             surf = self.fonts["digit"].render(str(pv), True, color)
             self.screen.blit(surf, surf.get_rect(center=rect.center))
         elif self.show_candidates:
-            cands = _bt_candidates(self.play_values, r, c)  # type: ignore[arg-type]
+            user_set  = self.play_user_cands.get((r, c))
+            cands     = user_set if user_set is not None else _bt_candidates(self.play_values, r, c)  # type: ignore[arg-type]
+            is_manual = user_set is not None
             for d in range(1, 10):
                 if d in cands:
                     dc = (d - 1) % 3
                     dr = (d - 1) // 3
                     cx = rect.x + dc * SUBCELL_W + SUBCELL_W // 2
                     cy = rect.y + dr * SUBCELL_H + SUBCELL_H // 2
-                    surf = self.fonts["cand"].render(str(d), True, p["cand_fg"])
+                    color = p["accent"] if is_manual else p["cand_fg"]
+                    surf = self.fonts["cand"].render(str(d), True, color)
                     self.screen.blit(surf, surf.get_rect(centerx=cx, centery=cy))
 
     def draw_candidates(self, r: int, c: int, cell_rect: pygame.Rect,
@@ -933,11 +958,21 @@ class SudokuApp:
                 f"Filled: {filled} / {total_e}", True, p["cand_fg"])
             s.blit(surf, (x, y)); y += surf.get_height() + 8
 
+        # Mode indicator
+        mode_label = "MARK MODE  (M to switch)" if self.play_cand_mode else "FILL MODE  (M to switch)"
+        mode_color = p["accent"] if self.play_cand_mode else p["play_fg"]
+        surf = self.fonts["panel_body"].render(mode_label, True, mode_color)
+        s.blit(surf, (x, y)); y += surf.get_height() + 6
+
         pygame.draw.line(s, p["panel_line"], (6, y), (PANEL_W-6, y), 1); y += 8
         cands_label = "C   hide candidates" if self.show_candidates else "C   show candidates"
-        for text in ["1–9   fill digit", "0/Del   erase",
+        digit_label = "1–9   toggle pencilmark" if self.play_cand_mode else "1–9   fill digit"
+        erase_label = "0/Del   clear marks" if self.play_cand_mode else "0/Del   erase"
+        for text in [digit_label, erase_label,
                      "Arrows   move", "H   hint",
-                     cands_label, "ESC   exit play mode"]:
+                     cands_label,
+                     "K   clear all user marks",
+                     "ESC   exit play mode"]:
             surf = self.fonts["panel_body"].render(text, True, p["solved_fg"])
             s.blit(surf, (x, y)); y += surf.get_height() + 3
 
@@ -1075,6 +1110,8 @@ class SudokuApp:
                 mx, my = pygame.mouse.get_pos()
                 if PANEL_X <= mx < PANEL_X + PANEL_W and GRID_Y <= my < GRID_Y + GRID_PX:
                     self.panel_scroll = max(0, self.panel_scroll - event.y * 20)
+            elif event.type == pygame.DROPFILE:
+                self._handle_dropped_file(event.file)
         return True
 
     def handle_key(self, event) -> bool:
@@ -1184,22 +1221,43 @@ class SudokuApp:
             self.show_candidates = not self.show_candidates
         elif k == pygame.K_h:
             self._advance_hint()
+        elif k == pygame.K_m:
+            self.play_cand_mode = not self.play_cand_mode
+        elif k == pygame.K_k:
+            # K = clear all user candidates (revert everything to auto)
+            self.play_user_cands.clear()
         elif k in (pygame.K_DELETE, pygame.K_BACKSPACE) or event.unicode == "0":
             if self.selected:
                 r, c = self.selected
                 initial = Grid(self.initial_values)
                 if not initial.givens[r][c]:
-                    self.play_values[r][c] = 0   # type: ignore[index]
+                    if self.play_cand_mode:
+                        # clear user candidates for this cell → revert to auto
+                        self.play_user_cands.pop((r, c), None)
+                    else:
+                        self.play_values[r][c] = 0   # type: ignore[index]
         elif event.unicode.isdigit() and event.unicode != "0":
             if self.selected:
                 r, c = self.selected
                 initial = Grid(self.initial_values)
                 if not initial.givens[r][c]:
-                    self.play_values[r][c] = int(event.unicode)  # type: ignore[index]
-                    self._check_play_complete()
-                    nc = c + 1 if c < 8 else 0
-                    nr = r + (1 if c == 8 and r < 8 else 0)
-                    self.selected = (nr, nc)
+                    if self.play_cand_mode:
+                        # toggle pencilmark candidate
+                        d = int(event.unicode)
+                        cell_cands = self.play_user_cands.setdefault((r, c), set())
+                        if d in cell_cands:
+                            cell_cands.discard(d)
+                        else:
+                            cell_cands.add(d)
+                        if not cell_cands:
+                            del self.play_user_cands[(r, c)]
+                    else:
+                        self.play_values[r][c] = int(event.unicode)  # type: ignore[index]
+                        self.play_user_cands.pop((r, c), None)  # clear marks when filling
+                        self._check_play_complete()
+                        nc = c + 1 if c < 8 else 0
+                        nr = r + (1 if c == 8 and r < 8 else 0)
+                        self.selected = (nr, nc)
         elif k == pygame.K_UP:
             if self.selected:
                 self.selected = (max(0, self.selected[0]-1), self.selected[1])
@@ -1367,21 +1425,25 @@ class SudokuApp:
     def enter_play_mode(self):
         if self._computing:
             return
-        self.mode       = "play"
-        self.auto_play  = False
-        self.selected   = (0, 0)
-        self.hint_level = 0
-        self.play_values = [row[:] for row in self.initial_values]
+        self.mode            = "play"
+        self.auto_play       = False
+        self.selected        = (0, 0)
+        self.hint_level      = 0
+        self.play_values     = [row[:] for row in self.initial_values]
+        self.play_user_cands = {}
+        self.play_cand_mode  = False
         # Compute solution for validation
         sol = _bt_solve([row[:] for row in self.initial_values])
         self.play_solution = sol
 
     def exit_play_mode(self):
-        self.mode         = "solve"
-        self.play_values  = None
-        self.play_solution= None
-        self.selected     = None
-        self.hint_level   = 0
+        self.mode            = "solve"
+        self.play_values     = None
+        self.play_solution   = None
+        self.selected        = None
+        self.hint_level      = 0
+        self.play_user_cands = {}
+        self.play_cand_mode  = False
         self.conflict_cells = validate_board(
             self.grid_states[self.step_idx].values)
 
@@ -1828,6 +1890,85 @@ class SudokuApp:
     # ──────────────────────────────────────────────────────────────────────────
     # Export
     # ──────────────────────────────────────────────────────────────────────────
+
+    def _show_status(self, message: str):
+        """Draw a transient status overlay (non-blocking, shows until next frame)."""
+        dim = pygame.Surface((WIN_W, WIN_H), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 140))
+        self.screen.blit(dim, (0, 0))
+        surf = self.fonts["panel_title"].render(message, True, (255, 255, 255))
+        self.screen.blit(surf, surf.get_rect(center=(WIN_W // 2, WIN_H // 2)))
+        pygame.display.flip()
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Screenshot / image import
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _handle_dropped_file(self, path: str):
+        """Accept a dropped image file and extract a sudoku puzzle via Claude API."""
+        ext = os.path.splitext(path)[1].lower()
+        if ext not in (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"):
+            return
+        if not HAS_PIL:
+            self._confirm_dialog(
+                "Missing library",
+                "Pillow is required for image import.  pip install Pillow")
+            return
+        if not HAS_ANTHROPIC:
+            self._confirm_dialog(
+                "Missing library",
+                "anthropic is required for image import.  pip install anthropic")
+            return
+
+        self._show_status("Extracting puzzle from image via Claude…")
+        pygame.event.pump()  # keep window responsive
+
+        try:
+            img = _PILImage.open(path).convert("RGB")
+            buf = _io.BytesIO()
+            img.save(buf, format="PNG")
+            b64 = _base64.b64encode(buf.getvalue()).decode()
+
+            client = _anthropic.Anthropic()
+            resp = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=256,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": "image/png", "data": b64},
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                "Extract the sudoku puzzle from this image. "
+                                "Return ONLY 9 lines, each with exactly 9 digits. "
+                                "Use 0 for empty or blank cells. "
+                                "No spaces, no extra text, no explanation."
+                            ),
+                        },
+                    ],
+                }],
+            )
+            text = resp.content[0].text.strip()
+            lines = [l.strip() for l in text.splitlines() if l.strip()]
+            lines = [l for l in lines if len(l) == 9 and l.isdigit()]
+            if len(lines) != 9:
+                self._confirm_dialog(
+                    "Extraction failed",
+                    f"Could not parse a 9×9 grid from the image. Got {len(lines)} valid row(s).")
+                return
+            vals = [[int(ch) for ch in row] for row in lines]
+        except Exception as e:
+            self._confirm_dialog("Error", f"Image extraction failed: {e}")
+            return
+
+        # Load into input mode so the user can verify / edit before solving or playing
+        self.enter_input_mode()
+        self.input_values = [row[:] for row in vals]
+        self._update_input_conflicts()
 
     def _export_png(self):
         path = self._text_dialog("Export PNG — enter file path:", default="sudoku.png")
