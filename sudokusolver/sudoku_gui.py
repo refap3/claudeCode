@@ -1203,6 +1203,9 @@ class SudokuApp:
                 r, c = self.selected
                 self.input_values[r][c] = 0   # type: ignore[index]
                 self._update_input_conflicts()
+                nc = c + 1 if c < 8 else 0
+                nr = r + (1 if c == 8 and r < 8 else 0)
+                self.selected = (nr, nc)
         elif event.unicode.isdigit() and event.unicode != "0":
             if self.selected:
                 self._input_push_history()
@@ -1312,6 +1315,9 @@ class SudokuApp:
                 r, c = self.selected
                 self.create_values[r][c] = 0   # type: ignore[index]
                 self._update_create_conflicts()
+                nc = c + 1 if c < 8 else 0
+                nr = r + (1 if c == 8 and r < 8 else 0)
+                self.selected = (nr, nc)
         elif event.unicode.isdigit() and event.unicode != "0":
             if self.selected:
                 self._create_push_history()
