@@ -223,7 +223,9 @@ def _bt_candidates(grid: list[list[int]], r: int, c: int) -> set[int]:
             used.add(grid[br+dr][bc+dc])
     return set(range(1, 10)) - used
 
-def _bt_solve(grid: list[list[int]]) -> list[list[int]] | None:
+def _bt_solve(grid: list[list[int]], _iters: list[int] | None = None) -> list[list[int]] | None:
+    if _iters is not None:
+        _iters[0] += 1
     best_r, best_c, best_cands = -1, -1, None
     for r in range(9):
         for c in range(9):
@@ -241,7 +243,7 @@ def _bt_solve(grid: list[list[int]]) -> list[list[int]] | None:
         return grid
     for d in sorted(best_cands):   # type: ignore[arg-type]
         grid[best_r][best_c] = d
-        result = _bt_solve([row[:] for row in grid])
+        result = _bt_solve([row[:] for row in grid], _iters)
         if result is not None:
             return result
         grid[best_r][best_c] = 0
@@ -392,7 +394,8 @@ class SudokuApp:
         self.auto_timer:      int             = 0
         self.stuck:           bool            = False
         self.difficulty:      int             = 0       # max tier used
-        self.brute_force_grid: list[list[int]] | None = None
+        self.brute_force_grid:  list[list[int]] | None = None
+        self.brute_force_iters: int                   = 0
 
         # ── Async computation ─────────────────────────────────────────────────
         self._computing:       bool = False
@@ -844,8 +847,10 @@ class SudokuApp:
         if self.brute_force_grid is not None:
             surf = self.fonts["panel_title"].render("BRUTE FORCE", True, p["brute_fg"])
             s.blit(surf, (x, y)); y += surf.get_height() + 6
+            iters = self.brute_force_iters
             for line in ("Puzzle solved by backtracking.", "",
                          "Purple digits = brute-forced.", "",
+                         f"Iterations: {iters:,}", "",
                          "Press PREV to return."):
                 if not line:
                     y += 4; continue
@@ -1759,11 +1764,13 @@ class SudokuApp:
 
     def _run_brute_force(self):
         start = self.grid_states[-1].values
-        result = _bt_solve([row[:] for row in start])
+        iters = [0]
+        result = _bt_solve([row[:] for row in start], iters)
         if result is None:
             self._confirm_dialog("No solution", "This puzzle has no solution.")
         else:
-            self.brute_force_grid = result
+            self.brute_force_grid  = result
+            self.brute_force_iters = iters[0]
 
     # ──────────────────────────────────────────────────────────────────────────
     # File I/O dialogs
