@@ -55,11 +55,33 @@ except ImportError:
     HAS_ANTHROPIC = False
 
 try:
-    from PIL import Image as _PILImage
+    from PIL import Image as _PILImage, ImageGrab as _ImageGrab
     import base64 as _base64, io as _io
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
+
+# ── Clipboard helper ──────────────────────────────────────────────────────────
+def _get_clipboard() -> str:
+    try:
+        import subprocess
+        if sys.platform == "darwin":
+            return subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
+        elif sys.platform == "win32":
+            import ctypes
+            ctypes.windll.user32.OpenClipboard(0)
+            handle = ctypes.windll.user32.GetClipboardData(1)
+            data = ctypes.c_char_p(handle).value or b""
+            ctypes.windll.user32.CloseClipboard()
+            return data.decode("utf-8", errors="ignore")
+        else:
+            for cmd in (["xclip", "-selection", "clipboard", "-o"], ["xsel", "-bo"]):
+                r = subprocess.run(cmd, capture_output=True, text=True)
+                if r.returncode == 0:
+                    return r.stdout
+    except Exception:
+        pass
+    return ""
 
 # ── Config ────────────────────────────────────────────────────────────────────
 CONFIG_PATH = Path.home() / ".sudokurc"
@@ -70,6 +92,7 @@ def load_config() -> dict:
         "show_candidates": True,
         "auto_interval": 1000,
         "last_puzzle": "sd0.txt",
+        "anthropic_api_key": "",
     }
     try:
         with open(CONFIG_PATH) as f:
@@ -210,6 +233,7 @@ BUTTONS = [
     {"id": "puzzle", "label": "PUZZLE"},
     {"id": "load",   "label": "LOAD"},
     {"id": "save",   "label": "SAVE"},
+    {"id": "apikey", "label": "API KEY"},
 ]
 
 # ── Backtracking solver ───────────────────────────────────────────────────────
@@ -426,6 +450,11 @@ class SudokuApp:
         self.hint_step_idx:   int             = -1   # which step hint refers to
         self.play_user_cands: dict            = {}   # (r,c) -> set of user-entered candidates
         self.play_cand_mode:  bool            = False # True=mark mode, False=fill mode
+
+        # ── Claude API ────────────────────────────────────────────────────────
+        self.anthropic_api_key: str = (
+            cfg.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY", "")
+        )
 
         self.btn_rects: dict = {}
         self._compute_btn_rects()
@@ -1140,6 +1169,9 @@ class SudokuApp:
         if event.key == pygame.K_d and self.mode == "solve":
             self.dark_mode = not self.dark_mode
             return True
+        if event.key == pygame.K_v and (mods & (pygame.KMOD_CTRL | pygame.KMOD_META)):
+            self._paste_image_from_clipboard()
+            return True
 
         if self.mode == "solve":
             return self._key_solve(event, ctrl)
@@ -1428,6 +1460,8 @@ class SudokuApp:
             self._prompt_load_file()
         elif bid == "save":
             self._prompt_save_file()
+        elif bid == "apikey":
+            self._prompt_api_key()
 
     # ──────────────────────────────────────────────────────────────────────────
     # Input mode
@@ -1776,7 +1810,7 @@ class SudokuApp:
     # File I/O dialogs
     # ──────────────────────────────────────────────────────────────────────────
 
-    def _text_dialog(self, title: str, default: str = "") -> str | None:
+    def _text_dialog(self, title: str, default: str = "", masked: bool = False) -> str | None:
         DW, DH = 480, 130
         dx = (WIN_W - DW) // 2
         dy = (WIN_H - DH) // 2
@@ -1804,12 +1838,18 @@ class SudokuApp:
                 if ev.type == pygame.QUIT:
                     return None
                 elif ev.type == pygame.KEYDOWN:
+                    mods = pygame.key.get_mods()
+                    paste = mods & (pygame.KMOD_CTRL | pygame.KMOD_META)
                     if ev.key == pygame.K_RETURN:
                         return text.strip() or None
                     elif ev.key == pygame.K_ESCAPE:
                         return None
                     elif ev.key == pygame.K_BACKSPACE:
                         text = text[:-1]
+                    elif ev.key == pygame.K_v and paste:
+                        clip = _get_clipboard()
+                        if clip:
+                            text += "".join(c for c in clip if c.isprintable())
                     elif ev.unicode and ev.unicode.isprintable():
                         text += ev.unicode
                 elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
@@ -1832,7 +1872,7 @@ class SudokuApp:
             pygame.draw.rect(self.screen, p["grid_thin"], fr, 1)
 
             font  = self.fonts["panel_body"]
-            disp  = text
+            disp  = "*" * len(text) if masked else text
             while disp and font.size(disp)[0] > fr.width - 10:
                 disp = disp[1:]
             surf = font.render(disp, True, p["solved_fg"])
@@ -2166,25 +2206,53 @@ class SudokuApp:
                 "Missing library",
                 "Pillow is required for image import.  pip install Pillow")
             return
+        img = _PILImage.open(path).convert("RGB")
+        self._extract_puzzle_from_pil(img)
+
+    def _paste_image_from_clipboard(self):
+        """Grab an image from the system clipboard and extract a sudoku puzzle."""
+        if not HAS_PIL:
+            self._confirm_dialog(
+                "Missing library",
+                "Pillow is required for image import.  pip install Pillow")
+            return
+        try:
+            img = _ImageGrab.grabclipboard()
+        except Exception as e:
+            self._confirm_dialog("Clipboard error", str(e))
+            return
+        if img is None:
+            self._confirm_dialog("Nothing to paste", "No image found in clipboard.")
+            return
+        self._extract_puzzle_from_pil(img.convert("RGB"))
+
+    def _extract_puzzle_from_pil(self, img):
+        """Send a PIL image to Claude and load the extracted sudoku into input mode."""
         if not HAS_ANTHROPIC:
             self._confirm_dialog(
                 "Missing library",
                 "anthropic is required for image import.  pip install anthropic")
+            return
+        if not self.anthropic_api_key:
+            self._confirm_dialog(
+                "API key required",
+                "No Anthropic API key set. Click API KEY to enter one.")
             return
 
         self._show_status("Extracting puzzle from image via Claude…")
         pygame.event.pump()  # keep window responsive
 
         try:
-            img = _PILImage.open(path).convert("RGB")
             buf = _io.BytesIO()
             img.save(buf, format="PNG")
             b64 = _base64.b64encode(buf.getvalue()).decode()
+            print(f"[image-import] image encoded ({len(b64)} bytes b64), sending to Claude…")
 
-            client = _anthropic.Anthropic()
+            client = _anthropic.Anthropic(api_key=self.anthropic_api_key)
             resp = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=256,
+                model="claude-sonnet-4-6",
+                max_tokens=512,
+                temperature=0,
                 messages=[{
                     "role": "user",
                     "content": [
@@ -2195,32 +2263,105 @@ class SudokuApp:
                         {
                             "type": "text",
                             "text": (
-                                "Extract the sudoku puzzle from this image. "
-                                "Return ONLY 9 lines, each with exactly 9 digits. "
-                                "Use 0 for empty or blank cells. "
-                                "No spaces, no extra text, no explanation."
+                                "Transcribe this 9×9 sudoku grid into exactly 9 lines of 9 digits.\n\n"
+                                "Rules:\n"
+                                "- Digit 1-9 printed in a cell → that digit\n"
+                                "- Empty / blank / shaded / dot cell → 0\n"
+                                "- Each row has EXACTLY 9 cells. Count them. "
+                                "An overlooked empty cell shifts all following digits and breaks the puzzle.\n\n"
+                                "Method: for each row, count all 9 column positions explicitly "
+                                "before writing the digits. Use spaces between digits to avoid "
+                                "miscounting, e.g. '5 3 0 0 7 0 0 0 0'.\n\n"
+                                "Output: 9 lines, one per row, digits separated by spaces. Nothing else."
                             ),
                         },
                     ],
                 }],
             )
-            text = resp.content[0].text.strip()
-            lines = [l.strip() for l in text.splitlines() if l.strip()]
-            lines = [l for l in lines if len(l) == 9 and l.isdigit()]
-            if len(lines) != 9:
+            print(f"[image-import] response received, stop_reason={resp.stop_reason}")
+            # Extract the text block (skip thinking blocks)
+            raw = next(b.text for b in resp.content if b.type == "text")
+            print(f"[image-import] raw response:\n{raw}")
+            # Robust parse: strip separators, treat . - _ as 0
+            import re as _re
+            vals = []
+            for raw_line in raw.splitlines():
+                digits = _re.sub(r"[.\-_]", "0", raw_line)
+                digits = _re.sub(r"[^0-9]", "", digits)
+                if len(digits) == 9:
+                    vals.append([int(d) for d in digits])
+            print(f"[image-import] parsed {len(vals)}/9 rows")
+            if len(vals) != 9:
                 self._confirm_dialog(
                     "Extraction failed",
-                    f"Could not parse a 9×9 grid from the image. Got {len(lines)} valid row(s).")
+                    f"Could not parse a 9×9 grid from the image. Got {len(vals)} valid row(s).")
                 return
-            vals = [[int(ch) for ch in row] for row in lines]
         except Exception as e:
+            import traceback
+            print(f"[image-import] ERROR: {e}")
+            traceback.print_exc()
             self._confirm_dialog("Error", f"Image extraction failed: {e}")
             return
+
+        # Validate: must have a unique solution without brute force
+        print("[image-import] validating extracted grid…")
+        from sudoku_tutor import Grid, ALL_STRATEGIES
+        conflicts = validate_board(vals)
+        if conflicts:
+            print(f"[image-import] conflicts detected: {conflicts}")
+            self._confirm_dialog(
+                "Extraction may be wrong",
+                "The extracted grid has duplicate digits in a row/column/box. "
+                "Load anyway to correct manually?")
+        else:
+            test_grid = Grid(vals)
+            steps_used = set()
+            while not test_grid.is_solved():
+                step = None
+                for _, fn in ALL_STRATEGIES:
+                    step = fn(test_grid)
+                    if step:
+                        break
+                if step is None:
+                    break
+                steps_used.add(step.strategy)
+                test_grid.apply_step(step)
+            solved = test_grid.is_solved()
+            if not solved:
+                solution = _bt_solve([row[:] for row in vals])
+                if solution is None:
+                    print("[image-import] no solution found — likely extraction error")
+                    ok = self._confirm_dialog(
+                        "No solution found",
+                        "This grid has no valid solution — extraction is probably wrong. "
+                        "Load anyway to correct manually?")
+                    if not ok:
+                        return
+                else:
+                    print("[image-import] puzzle needs brute force — may be extraction error or hard puzzle")
+                    self._confirm_dialog(
+                        "Possibly wrong",
+                        "Puzzle cannot be solved analytically — may be an extraction error "
+                        "or a very hard puzzle. Check the board carefully.")
+            else:
+                print(f"[image-import] solved analytically, strategies: {steps_used}")
 
         # Load into input mode so the user can verify / edit before solving or playing
         self.enter_input_mode()
         self.input_values = [row[:] for row in vals]
         self._update_input_conflicts()
+
+    def _prompt_api_key(self):
+        title = "Anthropic API Key (already set — paste to replace):" \
+            if self.anthropic_api_key else "Anthropic API Key:"
+        key = self._text_dialog(title, default="", masked=True)
+        if key is None:
+            return
+        self.anthropic_api_key = key
+        cfg = load_config()
+        cfg["anthropic_api_key"] = key
+        save_config(cfg)
+        self._show_status("API key saved." if key else "API key cleared.")
 
     def _export_png(self):
         path = self._text_dialog("Export PNG — enter file path:", default="sudoku.png")
@@ -2299,9 +2440,10 @@ class SudokuApp:
 
         # Save config before quitting
         save_config({
-            "dark_mode":       self.dark_mode,
-            "show_candidates": self.show_candidates,
-            "auto_interval":   self.auto_interval,
+            "dark_mode":         self.dark_mode,
+            "show_candidates":   self.show_candidates,
+            "auto_interval":     self.auto_interval,
+            "anthropic_api_key": self.anthropic_api_key,
         })
         pygame.quit()
 

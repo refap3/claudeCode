@@ -183,7 +183,7 @@ After pressing Enter a dialog appears:
 
 Auto-computed candidates are shown in gray; cells where you've entered your own marks show amber so you always know which is which.
 
-**Drop an image** of a sudoku puzzle onto the window to extract it automatically via Claude API (`pip install anthropic Pillow` + `ANTHROPIC_API_KEY` required).
+**Drop an image** onto the window or press **Cmd+V / Ctrl+V** to paste a screenshot — the puzzle is extracted automatically via Claude vision API. After extraction the solver verifies the result; a warning is shown if the grid has conflicts or no valid solution (likely a misread that you can correct in input mode).
 
 **Right-click** any cell in solve mode: toggle a pencilmark for the current filter digit.
 
@@ -199,6 +199,7 @@ Auto-computed candidates are shown in gray; cells where you've entered your own 
 | PLAY | Enter play mode |
 | LOAD | Load a puzzle file (enter path in terminal) |
 | PUZZLE | Open built-in puzzle library / generator |
+| API KEY | Enter / update the Anthropic API key (stored in `~/.sudokurc`) |
 
 ### Timeline Scrubber
 
@@ -209,6 +210,7 @@ The thin bar above the buttons shows progress. Click anywhere on it to jump to t
 Settings are saved to `~/.sudokurc` (JSON) on quit and restored on next launch:
 - Dark mode state
 - Path of last loaded puzzle
+- Anthropic API key (for image import)
 
 ## Terminal Tutor (`sudoku_tutor.py`)
 
@@ -250,6 +252,7 @@ The generator uses randomised backtracking to fill a valid grid, then removes ce
 - Python 3.8+
 - `pygame` — installed automatically by `install.sh` / `install.bat`
 
-**Optional** (for future screenshot-import feature):
-- `anthropic` — `pip install anthropic` + set `ANTHROPIC_API_KEY`
+**Optional** (for image/screenshot import via Claude vision):
+- `anthropic` — `pip install anthropic`
 - `Pillow` — `pip install Pillow`
+- API key: enter it via the **API KEY** button in the GUI (saved to `~/.sudokurc`)
