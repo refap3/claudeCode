@@ -38,11 +38,48 @@ With image/screenshot import:
 ANTHROPIC_API_KEY=sk-ant-... uvicorn web.main:app --reload --port 8080
 ```
 
-### Docker
+### Docker (local)
 
 ```bash
 docker compose up --build          # available at http://localhost:8011
 ANTHROPIC_API_KEY=sk-ant-... docker compose up --build  # with image import
+```
+
+### Deploy to a remote Docker host
+
+**Option 1 — clone from GitHub (recommended):**
+
+```bash
+# on the remote host:
+git clone https://github.com/refap3/claudeCode.git
+cd claudeCode/sudokusolver
+ANTHROPIC_API_KEY=sk-ant-... docker compose up --build -d
+```
+
+**Option 2 — push files via scp** (no GitHub access needed):
+
+```bash
+NEWHOST=192.168.1.XX   # change to target IP
+
+ssh pi@$NEWHOST "mkdir -p ~/sudokusolver/web/static"
+
+scp sudoku_tutor.py sudoku_generator.py puzzles.py sudosolv.py \
+    Dockerfile docker-compose.yml web-requirements.txt pi@$NEWHOST:~/sudokusolver/
+
+scp -r web/ pi@$NEWHOST:~/sudokusolver/
+
+ssh pi@$NEWHOST "cd ~/sudokusolver && \
+  ANTHROPIC_API_KEY=sk-ant-... docker compose up --build -d"
+```
+
+**Update an existing deployment:**
+
+```bash
+# Option 1 — on the host:
+git pull && docker compose up --build -d
+
+# Option 2 — from your machine (re-run scp commands above, then):
+ssh pi@$NEWHOST "cd ~/sudokusolver && docker compose up --build -d"
 ```
 
 ### API Endpoints
