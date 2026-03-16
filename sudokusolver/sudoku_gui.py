@@ -964,6 +964,22 @@ class SudokuApp:
         y += 6
         y = self._wrapped(s, step.explanation, x, y, max_w,
                           self.fonts["panel_body"], p["solved_fg"])
+
+        # ── Full step list ─────────────────────────────────────────────────
+        y += 12
+        pygame.draw.line(s, p["panel_line"], (6, y), (PANEL_W-6, y), 1)
+        y += 6
+        hdr = self.fonts["small"].render("ALL STEPS", True, p["cand_fg"])
+        s.blit(hdr, (x, y)); y += hdr.get_height() + 4
+
+        for i, st in enumerate(self.steps[:self.step_idx]):
+            idx = i + 1
+            placements = ", ".join(f"R{r+1}C{c+1}={d}" for r, c, d in st.placements)
+            line_text = f"{idx:2}. {placements or '—'}  [{st.strategy}]"
+            color = p["selected"] if idx == self.step_idx else p["solved_fg"]
+            surf = self.fonts["small"].render(line_text, True, color)
+            s.blit(surf, (x, y)); y += surf.get_height() + 1
+
         return y
 
     def _panel_input(self, s: pygame.Surface, x: int, y: int, max_w: int) -> int:
@@ -1170,7 +1186,7 @@ class SudokuApp:
             self.dark_mode = not self.dark_mode
             return True
         if event.key == pygame.K_v and (mods & (pygame.KMOD_CTRL | pygame.KMOD_META)):
-            self._paste_image_from_clipboard()
+            self._paste_from_clipboard()
             return True
 
         if self.mode == "solve":
@@ -2209,8 +2225,38 @@ class SudokuApp:
         img = _PILImage.open(path).convert("RGB")
         self._extract_puzzle_from_pil(img)
 
-    def _paste_image_from_clipboard(self):
-        """Grab an image from the system clipboard and extract a sudoku puzzle."""
+    @staticmethod
+    def _parse_puzzle_text(text: str) -> list[list[int]] | None:
+        """Parse 9 lines of 9 digits into a 9×9 grid, or return None."""
+        import re as _re
+        lines = []
+        for raw in text.splitlines():
+            digits = _re.sub(r"[.\-_]", "0", raw)
+            digits = _re.sub(r"[^0-9]", "", digits)
+            if len(digits) == 9:
+                lines.append([int(d) for d in digits])
+        if len(lines) == 9:
+            return lines
+        return None
+
+    def _paste_from_clipboard(self):
+        """Ctrl+V: try text puzzle first, then image."""
+        # ── Text paste ────────────────────────────────────────────────────────
+        text = _get_clipboard()
+        if text:
+            vals = self._parse_puzzle_text(text)
+            if vals is not None:
+                self.mode          = "input"
+                self.input_values  = vals
+                self.input_history = []
+                self.input_future  = []
+                self.selected      = (0, 0)
+                self.auto_play     = False
+                self._update_input_conflicts()
+                self._show_status("Puzzle pasted from text — verify and press Enter.")
+                return
+
+        # ── Image paste ───────────────────────────────────────────────────────
         if not HAS_PIL:
             self._confirm_dialog(
                 "Missing library",
@@ -2222,7 +2268,7 @@ class SudokuApp:
             self._confirm_dialog("Clipboard error", str(e))
             return
         if img is None:
-            self._confirm_dialog("Nothing to paste", "No image found in clipboard.")
+            self._confirm_dialog("Nothing to paste", "No image or puzzle text found in clipboard.")
             return
         self._extract_puzzle_from_pil(img.convert("RGB"))
 

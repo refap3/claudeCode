@@ -1,6 +1,6 @@
 # Sudoku Tutor & GUI
 
-A human-strategy Sudoku solver with a full pygame GUI and terminal tutor mode.
+A human-strategy Sudoku solver with a full pygame GUI, terminal tutor mode, and a **browser-based web app** deployable via Docker.
 The solver uses only logic techniques a human would actually apply — no backtracking guessing.
 
 ## Files
@@ -13,10 +13,93 @@ The solver uses only logic techniques a human would actually apply — no backtr
 | `sudoku_generator.py` | Random puzzle generator with difficulty rating |
 | `sudosolv.py` | Simple backtracking solver (brute force) |
 | `sd0.txt` – `sd3.txt` | Sample puzzle files |
+| `web/` | FastAPI web application (see below) |
+| `Dockerfile` | Container build for the web app |
+| `docker-compose.yml` | Compose config — host port **8011** → container 8080 |
+| `web-requirements.txt` | Python deps for the web app |
 
-## Install (one line)
+---
 
-**Mac / Linux** — no repo needed, installs to `~/sudoku-tutor`:
+## Web App (Browser / Docker)
+
+A full-featured browser port of the pygame GUI — same solver, same strategies, same colour coding.
+
+### Quick start (local)
+
+```bash
+pip install -r web-requirements.txt
+uvicorn web.main:app --reload --port 8080
+# Open http://localhost:8080
+```
+
+With image/screenshot import:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-... uvicorn web.main:app --reload --port 8080
+```
+
+### Docker
+
+```bash
+docker compose up --build          # available at http://localhost:8011
+ANTHROPIC_API_KEY=sk-ant-... docker compose up --build  # with image import
+```
+
+### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/solve` | Full human-strategy solve — returns all steps + grid states |
+| POST | `/api/validate` | Conflict detection only |
+| POST | `/api/brute-force` | Backtracking solve → solution + iteration count |
+| GET | `/api/puzzles` | List all 30 built-in puzzles |
+| GET | `/api/puzzles/{id}` | Single puzzle by index |
+| POST | `/api/generate` | Generate puzzle `{"tier": 0-4}` |
+| POST | `/api/extract-image` | Multipart image → Claude vision → 9×9 grid |
+| GET | `/api/config` | `{has_anthropic_key, has_generator, has_puzzles}` |
+
+### Web keyboard shortcuts
+
+**Solve mode:**
+
+| Key | Action |
+|-----|--------|
+| `Space` / `→` | Next step |
+| `←` / `Backspace` | Previous step |
+| `A` | Toggle auto-play |
+| `C` | Toggle candidates |
+| `D` | Toggle dark mode |
+| `H` | Progressive hint |
+| `P` | Enter play mode |
+| `I` | Enter input mode |
+| `R` | Reset to step 0 |
+| `1`–`9` | Digit filter |
+| `0` | Clear filter |
+
+**Input / Create mode:** `1`–`9` set digit · `0`/`Del` clear · Arrows move · `Enter` solve · `Esc` cancel · `Ctrl+Z/Y` undo/redo · `X` clear all
+
+**Play mode:** `1`–`9` fill · `M` mark mode · `K` clear marks · `H` hint · `C` cands · `Esc` exit
+
+### Image / text import (web)
+
+- **Paste image**: Cmd+V / Ctrl+V with a screenshot in clipboard → Claude vision extracts the puzzle
+- **Paste text**: Cmd+V / Ctrl+V with a text puzzle (9 lines × 9 digits) → loads directly, no API key needed
+- **Drag & drop**: drop an image file onto the browser window
+- **Upload button**: click 📷 IMAGE in the toolbar
+
+### Tutor sidebar
+
+The right-hand panel shows:
+- Current step strategy, tier, explanation, placements and eliminations
+- **All Steps** list — builds line by line as you advance: `1. R1C2=3  Naked Single`. Click any row to jump to that step.
+
+---
+
+## Desktop GUI (`sudoku_gui.py`)
+
+### Install (one line)
+
+**Mac / Linux** — installs to `~/sudoku-tutor`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/refap3/claudeCode/main/sudokusolver/install.sh | bash
@@ -28,64 +111,75 @@ curl -fsSL https://raw.githubusercontent.com/refap3/claudeCode/main/sudokusolver
 powershell -ExecutionPolicy Bypass -Command "iex (irm 'https://raw.githubusercontent.com/refap3/claudeCode/main/sudokusolver/install.ps1')"
 ```
 
-## Launch / Update
+### Launch / Update
 
 ```bash
 sudoku               # launch (detached — terminal stays free)
 sudoku-update        # pull latest code and dependencies
 ```
 
-Launchers are written to `~/.local/bin/` by the installer. If that directory is not on your `PATH`, add this to `~/.zshrc` or `~/.bashrc`:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-Or run directly from the install folder:
-
-```bash
-bash ~/sudoku-tutor/launch.sh        # Mac / Linux
-bash ~/sudoku-tutor/update.sh
-
-%USERPROFILE%\sudoku-tutor\launch.bat  # Windows
-%USERPROFILE%\sudoku-tutor\update.bat
-```
-
-## Wipe and reinstall
-
-```bash
-# Mac / Linux
-rm -rf ~/sudoku-tutor
-curl -fsSL https://raw.githubusercontent.com/refap3/claudeCode/main/sudokusolver/install.sh | bash
-
-# Windows PowerShell
-Remove-Item -Recurse -Force ~/sudoku-tutor
-powershell -ExecutionPolicy Bypass -Command "iex (irm 'https://raw.githubusercontent.com/refap3/claudeCode/main/sudokusolver/install.ps1')"
-```
-
-## If you already have the repo
-
-```bash
-# Mac / Linux — from repo root
-bash sudokusolver/install.sh
-bash sudokusolver/launch.sh
-bash sudokusolver/update.sh
-
-# Windows — from repo root
-sudokusolver\install.bat
-sudokusolver\launch.bat
-sudokusolver\update.bat
-```
-
-## Manual (no venv)
+Or run directly:
 
 ```bash
 pip install pygame
-python sudoku_gui.py           # GUI, loads sd0.txt by default
-python sudoku_gui.py sd0.txt   # GUI with explicit file
-python sudoku_tutor.py sd0.txt # terminal mode, interactive
-python sudoku_tutor.py sd0.txt --auto  # terminal mode, non-interactive
+python sudoku_gui.py           # loads sd0.txt by default
+python sudoku_gui.py sd0.txt   # explicit file
 ```
+
+### Colour Coding
+
+| Colour | Meaning |
+|--------|---------|
+| Green cell | Digit just placed by this step |
+| Orange cell | Candidate just eliminated |
+| Yellow cell | House (row/col/box) involved in the strategy |
+| Purple cell | Pattern/strategy-defining cell (e.g. X-Wing rows) |
+| Blue tint | Peer cell (same row, col, or box as selection) |
+| Red candidate | Candidate being eliminated (pencilmarks) |
+
+### Keyboard Controls
+
+**Solve mode:**
+
+| Key | Action |
+|-----|--------|
+| `Space` / `→` | Next step |
+| `←` / `Backspace` | Previous step |
+| `A` | Toggle auto-play (1 step/sec) |
+| `C` | Toggle candidate display |
+| `D` | Toggle dark mode |
+| `H` | Progressive hint |
+| `P` | Enter play mode |
+| `R` | Reset to step 0 |
+| `I` | Enter input mode |
+| `1`–`9` | Digit filter |
+| `0` | Clear digit filter |
+| `Ctrl+E` | Export PNG |
+| `Ctrl+V` / `Cmd+V` | Paste puzzle (text or image via Claude) |
+| `ESC` | Quit |
+
+**Input / Create mode:** `1`–`9` set · `0`/`Del` clear · Arrows move · `X` clear all · `Ctrl+Z/Y` undo/redo · `Enter` solve · `ESC` cancel
+
+**Play mode:** `1`–`9` fill/mark · `M` toggle fill/mark · `K` clear marks · `H` hint · `C` cands · `ESC` exit
+
+### Paste / Image import (desktop)
+
+`Ctrl+V` / `Cmd+V` tries in order:
+1. **Text**: clipboard contains 9 lines × 9 digits → loaded into input mode instantly
+2. **Image**: clipboard contains a screenshot → sent to Claude vision API → puzzle extracted
+
+Drop an image file onto the window for the same image extraction flow.
+
+### Tutor panel
+
+The right-hand panel shows the current step's strategy, tier, explanation, placements, and eliminations.
+Below that, an **All Steps** list accumulates line by line as you advance: `1. R1C2=3  Naked Single`.
+
+### Timeline Scrubber
+
+The thin bar below the grid shows progress. Click anywhere to jump to that step.
+
+---
 
 ## Puzzle File Format
 
@@ -103,156 +197,27 @@ Plain text, one row per line, digits 0 or `.` for unknowns:
 000080079
 ```
 
-## GUI (`sudoku_gui.py`)
-
-Window: 944 × 680 px. Layout: 9×9 grid (left) + info panel (right) + button bar (bottom).
-
-### Colour Coding
-
-| Colour | Meaning |
-|--------|---------|
-| Green cell | Digit just placed by this step |
-| Orange cell | Candidate just eliminated |
-| Yellow cell | House (row/col/box) involved in the strategy |
-| Purple cell | Pattern/strategy-defining cell (e.g. X-Wing rows) |
-| Blue tint | Cell that shares row, col, or box with the selected cell |
-| Red candidate | Candidate being eliminated (shown in pencilmarks) |
-
-### Keyboard Controls
-
-**Solve mode:**
-
-| Key | Action |
-|-----|--------|
-| `Space` / `→` | Next step |
-| `←` / `Backspace` | Previous step |
-| `A` | Toggle auto-play (1 step/sec) |
-| `C` | Toggle candidate (pencilmark) display |
-| `D` | Toggle dark mode |
-| `H` | Progressive hint (4 levels: area → digit → strategy → full) |
-| `P` | Enter play mode — solve manually |
-| `R` | Reset to step 0 |
-| `I` | Enter input mode — type a new puzzle |
-| `1`–`9` | Digit filter — dim cells not containing that candidate |
-| `0` | Clear digit filter |
-| `Ctrl+E` | Export current view as PNG |
-| `ESC` | Quit |
-
-**Input mode:**
-
-| Key | Action |
-|-----|--------|
-| `1`–`9` | Set digit in selected cell |
-| `0` / `Del` | Clear cell |
-| Arrow keys | Move selection |
-| `X` | Clear all cells |
-| `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
-| `Enter` | Solve the entered puzzle |
-| `ESC` | Cancel |
-
-**Create mode** (build a puzzle from scratch via the CREATE button):
-
-| Key | Action |
-|-----|--------|
-| `1`–`9` | Place digit (cursor advances automatically) |
-| `0` / `Del` | Clear cell |
-| Arrow keys | Move selection |
-| `X` | Clear all cells |
-| `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
-| `Enter` | Open "Play or Solve?" dialog |
-| `ESC` | Cancel (return to solve mode without loading) |
-
-After pressing Enter a dialog appears:
-- **PLAY (P)** — load the puzzle and enter play mode to solve it yourself
-- **SOLVE (S)** — load the puzzle and let the computer walk through the solution step by step
-- **CANCEL** — stay in create mode
-
-**Play mode** (solve manually):
-
-| Key | Action |
-|-----|--------|
-| `1`–`9` | Fill digit in **fill mode** (green=correct, red=wrong) |
-| `1`–`9` | Toggle pencilmark candidate in **mark mode** (amber) |
-| `0` / `Del` | Erase digit (fill mode) / clear cell's user marks (mark mode) |
-| `M` | Toggle between fill mode and mark mode |
-| `K` | Clear all user-entered pencilmarks (revert to auto-computed) |
-| Arrow keys | Move selection |
-| `C` | Toggle candidate (pencilmark) display |
-| `H` | Get a hint |
-| `ESC` | Exit play mode |
-
-Auto-computed candidates are shown in gray; cells where you've entered your own marks show amber so you always know which is which.
-
-**Drop an image** onto the window or press **Cmd+V / Ctrl+V** to paste a screenshot — the puzzle is extracted automatically via Claude vision API. After extraction the solver verifies the result; a warning is shown if the grid has conflicts or no valid solution (likely a misread that you can correct in input mode).
-
-**Right-click** any cell in solve mode: toggle a pencilmark for the current filter digit.
-
-### Buttons
-
-| Button | Action |
-|--------|--------|
-| PREV / NEXT | Navigate steps |
-| AUTO | Toggle auto-play |
-| RESET | Go to step 0 |
-| CANDS | Toggle pencilmarks |
-| INPUT | Enter input mode |
-| PLAY | Enter play mode |
-| LOAD | Load a puzzle file (enter path in terminal) |
-| PUZZLE | Open built-in puzzle library / generator |
-| API KEY | Enter / update the Anthropic API key (stored in `~/.sudokurc`) |
-
-### Timeline Scrubber
-
-The thin bar above the buttons shows progress. Click anywhere on it to jump to that step.
-
-### Config Persistence
-
-Settings are saved to `~/.sudokurc` (JSON) on quit and restored on next launch:
-- Dark mode state
-- Path of last loaded puzzle
-- Anthropic API key (for image import)
-
-## Terminal Tutor (`sudoku_tutor.py`)
-
-```
-python sudoku_tutor.py sd0.txt
-```
-
-Each step prints:
-- Strategy name and tier
-- Plain-English explanation
-- Board state with candidates
-
-Press Enter to advance, `q` to quit, or pass `--auto` to print everything without prompts.
+---
 
 ## Strategies (Tier 0–5)
 
 | Tier | Strategy |
 |------|----------|
-| 0 | Full House, Naked Single only (no elimination needed) |
+| 0 | Full House, Naked Single only |
 | 1 | Full House, Naked Single, Hidden Single |
-| 2 | Naked/Hidden Pairs, Triples, Quads; Locked Candidates (Pointing, Claiming) |
+| 2 | Naked/Hidden Pairs, Triples, Quads; Pointing Pairs, Box-Line Reduction |
 | 3 | X-Wing, Swordfish, Jellyfish, Squirmbag, Y-Wing, XYZ-Wing, Simple Coloring |
 | 4 | Unique Rectangle, W-Wing, Skyscraper, 2-String Kite, BUG+1 |
 | 5 | Finned X-Wing, XY-Chain |
 
-If no strategy applies, the GUI falls back to a brute-force solver and marks remaining steps as "Brute Force".
+If no strategy applies, the solver falls back to backtracking and marks remaining steps as "Brute Force".
 
-## Puzzle Library & Generator
-
-Click **PUZZLE** in the GUI to open the library dialog:
-- Browse 30 built-in puzzles organised by tier (0–4); Tier 0 ★ is the "Really Easy" tab
-- Click **Load** to load any puzzle instantly
-- Click **Generate** to create a new random puzzle at the selected tier (0–4)
-
-The generator uses randomised backtracking to fill a valid grid, then removes cells while maintaining a unique solution, targeting the requested difficulty tier.
+---
 
 ## Requirements
 
-- Python 3.8+
-- `pygame` — installed automatically by `install.sh` / `install.bat`
+**Desktop GUI:** Python 3.8+ · `pygame`
 
-**Optional** (for image/screenshot import via Claude vision):
-- `anthropic` — `pip install anthropic`
-- `Pillow` — `pip install Pillow`
-- API key: enter it via the **API KEY** button in the GUI (saved to `~/.sudokurc`)
+**Web app:** Python 3.11+ · `fastapi` · `uvicorn[standard]` · `python-multipart` · `anthropic` · `Pillow`
+
+**Image import (both):** `anthropic` + `Pillow` + Anthropic API key
