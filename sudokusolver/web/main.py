@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -117,8 +117,9 @@ async def api_generate(payload: GeneratePayload):
 
 
 @app.post("/api/extract-image")
-async def api_extract_image(file: UploadFile = File(...)):
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+async def api_extract_image(request: Request, file: UploadFile = File(...)):
+    # Key priority: request header > environment variable
+    api_key = request.headers.get("X-Anthropic-Key", "").strip() or os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY not configured")
     image_bytes = await file.read()

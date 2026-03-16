@@ -117,6 +117,12 @@ ssh pi@$NEWHOST "cd ~/sudokusolver && docker compose up --build -d"
 
 **Play mode:** `1`–`9` fill · `M` mark mode · `K` clear marks · `H` hint · `C` cands · `Esc` exit
 
+### API Key (web)
+
+No environment variable needed. Click **API KEY** in the toolbar to paste your Anthropic key — it is stored in browser `localStorage` and sent only during image extraction. The button turns green when a key is set. If you try to import an image without a key the dialog opens automatically.
+
+If `ANTHROPIC_API_KEY` is set as an environment variable on the server it is used as a fallback; the browser-stored key always takes priority.
+
 ### Image / text import (web)
 
 - **Paste image**: Cmd+V / Ctrl+V with a screenshot in clipboard → Claude vision extracts the puzzle

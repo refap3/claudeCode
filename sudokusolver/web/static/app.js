@@ -80,6 +80,13 @@ const btnCreate = document.getElementById('btn-create');
 const btnPuzzle = document.getElementById('btn-puzzle');
 const btnImgUpload = document.getElementById('btn-img-upload');
 const imgInput  = document.getElementById('img-upload-input');
+const btnApiKey = document.getElementById('btn-apikey');
+const apikeyDialog = document.getElementById('apikey-dialog');
+const apikeyInput  = document.getElementById('apikey-input');
+const apikeyStatus = document.getElementById('apikey-status');
+const btnApiKeySave  = document.getElementById('btn-apikey-save');
+const btnApiKeyClear = document.getElementById('btn-apikey-clear');
+const apikeyDialogClose = document.getElementById('apikey-dialog-close');
 
 const inputControls = document.getElementById('input-controls');
 const playControls  = document.getElementById('play-controls');
@@ -815,18 +822,45 @@ function hideFlash() {
   flashOverlay.style.display = 'none';
 }
 
+function getLocalApiKey() {
+  return localStorage.getItem('anthropic_api_key') || '';
+}
+
+function hasApiKey() {
+  return state.hasAnthropicKey || !!getLocalApiKey();
+}
+
+function updateApiKeyButton() {
+  const hasKey = hasApiKey();
+  btnApiKey.classList.toggle('on', hasKey);
+  btnApiKey.title = hasKey ? 'API key set — click to change' : 'Set Anthropic API key for image import';
+}
+
+function showApiKeyDialog() {
+  const existing = getLocalApiKey();
+  apikeyInput.value = existing;
+  apikeyStatus.textContent = state.hasAnthropicKey
+    ? 'Server has ANTHROPIC_API_KEY set via environment variable.'
+    : existing ? 'Key stored in browser localStorage.' : 'No key set — image import will not work.';
+  apikeyDialog.showModal();
+  apikeyInput.focus();
+  apikeyInput.select();
+}
+
 async function handleImageUpload(file) {
   if (!file) return;
-  if (!state.hasAnthropicKey) {
-    alert('Image extraction requires an Anthropic API key.\n\nSet the ANTHROPIC_API_KEY environment variable and restart the server:\n\n  ANTHROPIC_API_KEY=sk-ant-... uvicorn web.main:app --port 8080');
+  if (!hasApiKey()) {
+    showApiKeyDialog();
     return;
   }
   showFlash('Extracting puzzle…', 'Sending image to Claude vision API');
   setStatus('Extracting puzzle from image via Claude…');
   const formData = new FormData();
   formData.append('file', file);
+  const localKey = getLocalApiKey();
+  const headers = localKey ? {'X-Anthropic-Key': localKey} : {};
   try {
-    const r = await fetch('/api/extract-image', {method: 'POST', body: formData});
+    const r = await fetch('/api/extract-image', {method: 'POST', headers, body: formData});
     const data = await r.json();
     hideFlash();
     if (!r.ok) {
@@ -1240,6 +1274,36 @@ document.addEventListener('drop', e => {
   if (file && file.type.startsWith('image/')) handleImageUpload(file);
 });
 
+// ── API key dialog ────────────────────────────────────────────────────────────
+btnApiKey.addEventListener('click', showApiKeyDialog);
+apikeyDialogClose.addEventListener('click', () => apikeyDialog.close());
+apikeyDialog.addEventListener('click', e => { if (e.target === apikeyDialog) apikeyDialog.close(); });
+btnApiKeySave.addEventListener('click', () => {
+  const key = apikeyInput.value.trim();
+  if (key) {
+    localStorage.setItem('anthropic_api_key', key);
+    apikeyStatus.textContent = 'Key saved to browser localStorage.';
+    apikeyStatus.style.color = 'var(--ok)';
+  } else {
+    localStorage.removeItem('anthropic_api_key');
+    apikeyStatus.textContent = 'Key cleared.';
+    apikeyStatus.style.color = 'var(--text-muted)';
+  }
+  updateApiKeyButton();
+  setTimeout(() => apikeyDialog.close(), 800);
+});
+btnApiKeyClear.addEventListener('click', () => {
+  localStorage.removeItem('anthropic_api_key');
+  apikeyInput.value = '';
+  apikeyStatus.textContent = 'Key cleared.';
+  apikeyStatus.style.color = 'var(--text-muted)';
+  updateApiKeyButton();
+});
+apikeyInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') btnApiKeySave.click();
+  if (e.key === 'Escape') apikeyDialog.close();
+});
+
 // ── Puzzle dialog ─────────────────────────────────────────────────────────────
 puzzleDialogClose.addEventListener('click', () => puzzleDialog.close());
 puzzleDialog.addEventListener('click', e => { if (e.target === puzzleDialog) puzzleDialog.close(); });
@@ -1252,9 +1316,7 @@ async function init() {
     state.hasAnthropicKey = cfg.has_anthropic_key || false;
     state.hasGenerator    = cfg.has_generator || false;
     state.hasPuzzles      = cfg.has_puzzles || false;
-    if (!state.hasAnthropicKey) {
-      btnImgUpload.title = 'Image import requires ANTHROPIC_API_KEY env var';
-    }
+    updateApiKeyButton();
   } catch (e) {
     console.warn('Config fetch failed:', e);
   }

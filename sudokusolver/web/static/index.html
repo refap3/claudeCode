@@ -34,6 +34,7 @@
     <button class="btn" id="btn-puzzle" title="Puzzle library">PUZZLE</button>
     <button class="btn" id="btn-img-upload" title="Import from image (paste or upload)">&#x1F4F7; IMAGE</button>
     <input type="file" id="img-upload-input" accept="image/*">
+    <button class="btn" id="btn-apikey" title="Set Anthropic API key">API KEY</button>
 
     <div class="btn-sep"></div>
 
@@ -77,6 +78,29 @@
   <!-- Status bar -->
   <div id="status-bar" id="status-bar">Keyboard: Space/→ next  ←/Bksp prev  A auto  C cands  D dark  H hint  P play  I input  1-9 filter  R reset</div>
 </div>
+
+<!-- API key dialog -->
+<dialog id="apikey-dialog">
+  <div class="dialog-header">
+    <span>Anthropic API Key</span>
+    <button class="dialog-close" id="apikey-dialog-close">&#x2715;</button>
+  </div>
+  <div class="dialog-body">
+    <p style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">
+      Required for image/screenshot puzzle import via Claude vision.<br>
+      Stored in your browser only (localStorage). Never sent to the server except during image extraction.
+    </p>
+    <input type="password" id="apikey-input" placeholder="sk-ant-..." autocomplete="off"
+      style="width:100%; padding:7px 10px; font-size:13px; font-family:monospace;
+             border:1px solid var(--border); border-radius:4px;
+             background:var(--bg); color:var(--text);">
+    <div id="apikey-status" style="font-size:11px; margin-top:6px; color:var(--text-muted);"></div>
+  </div>
+  <div class="dialog-footer">
+    <button class="btn danger" id="btn-apikey-clear">Clear</button>
+    <button class="btn btn-on" id="btn-apikey-save">Save</button>
+  </div>
+</dialog>
 
 <!-- Puzzle library dialog -->
 <dialog id="puzzle-dialog">
