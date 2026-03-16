@@ -142,8 +142,11 @@ async def api_config():
 
 
 # ── Static files & SPA fallback ────────────────────────────────────────────────
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR), html=False), name="static")
 
 @app.get("/")
 async def index():
-    return FileResponse(str(STATIC_DIR / "index.html"))
+    return FileResponse(
+        str(STATIC_DIR / "index.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
