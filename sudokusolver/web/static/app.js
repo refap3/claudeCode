@@ -20,6 +20,7 @@ const state = {
   editHistory: [],
   editFuture: [],
   editGivens: null,        // set when entering input mode from existing puzzle
+  inputConflicts: new Set(), // "r,c" keys of conflicting cells in input/create mode
 
   // Play mode
   playValues: emptyGrid(),
@@ -252,6 +253,7 @@ function renderGrid() {
       givens: state.editGivens || emptyGrid(),
       candidates: Array.from({length: 9}, () => Array(9).fill([])),
     };
+    conflictSet = state.inputConflicts;
   } else if (state.mode === 'play') {
     gs = {
       values: state.playValues,
@@ -597,6 +599,8 @@ async function loadPuzzle(values) {
   try {
     const result = await apiSolve(values);
     if (result.conflict_cells && result.conflict_cells.length > 0) {
+      const cells = result.conflict_cells.map(({r, c}) => `R${r+1}C${c+1}`).join(', ');
+      alert(`Puzzle has conflicts — cannot solve.\nConflicting cells: ${cells}`);
       setStatus('Puzzle has conflicts — cannot solve.');
       return;
     }
@@ -646,6 +650,16 @@ function toggleAutoPlay() {
 }
 
 // ── Input / Create mode ───────────────────────────────────────────────────────
+async function validateEditGrid() {
+  try {
+    const result = await apiValidate(state.editValues);
+    state.inputConflicts = new Set((result.conflict_cells || []).map(({r, c}) => key(r, c)));
+  } catch (e) {
+    state.inputConflicts = new Set();
+  }
+  render();
+}
+
 function enterInputMode(existingValues) {
   stopAutoPlay();
   state.mode = 'input';
@@ -653,9 +667,11 @@ function enterInputMode(existingValues) {
   state.editGivens = emptyGrid();
   state.editHistory = [];
   state.editFuture = [];
+  state.inputConflicts = new Set();
   state.selected = [4, 4];
   state.highlight = {};
   render();
+  if (existingValues) validateEditGrid();
 }
 
 function enterCreateMode() {
@@ -665,6 +681,7 @@ function enterCreateMode() {
   state.editGivens = emptyGrid();
   state.editHistory = [];
   state.editFuture = [];
+  state.inputConflicts = new Set();
   state.selected = [4, 4];
   state.highlight = {};
   render();
@@ -700,6 +717,7 @@ function setEditDigit(r, c, d) {
   state.editFuture = [];
   state.editValues[r][c] = d;
   render();
+  validateEditGrid();
 }
 
 function undoEdit() {
@@ -707,6 +725,7 @@ function undoEdit() {
   state.editFuture.push(cloneGrid(state.editValues));
   state.editValues = state.editHistory.pop();
   render();
+  validateEditGrid();
 }
 
 function redoEdit() {
@@ -714,6 +733,7 @@ function redoEdit() {
   state.editHistory.push(cloneGrid(state.editValues));
   state.editValues = state.editFuture.pop();
   render();
+  validateEditGrid();
 }
 
 // ── Play mode ─────────────────────────────────────────────────────────────────
@@ -1063,6 +1083,7 @@ function handleEditKey(e) {
     state.editHistory.push(cloneGrid(state.editValues));
     state.editValues = emptyGrid();
     state.editFuture = [];
+    state.inputConflicts = new Set();
     render();
     return;
   }
@@ -1215,6 +1236,7 @@ btnInputClear.addEventListener('click', () => {
   state.editHistory.push(cloneGrid(state.editValues));
   state.editValues = emptyGrid();
   state.editFuture = [];
+  state.inputConflicts = new Set();
   render();
 });
 btnUndo.addEventListener('click', undoEdit);
