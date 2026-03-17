@@ -37,7 +37,7 @@ if ($Fresh) {
     $Tmp = Join-Path $env:TEMP "sudoku_install_$(New-Guid)"
     try {
         git clone --depth 1 --filter=blob:none --sparse $REPO "$Tmp\repo" -q 2>&1 | Out-Null
-        git -C "$Tmp\repo" sparse-checkout set $SUBDIR -q 2>&1 | Out-Null
+        git -C "$Tmp\repo" sparse-checkout set $SUBDIR 2>&1 | Out-Null
         New-Item -ItemType Directory -Force $Dest | Out-Null
         Copy-Item "$Tmp\repo\$SUBDIR\*" -Destination $Dest -Recurse -Force
     } finally {

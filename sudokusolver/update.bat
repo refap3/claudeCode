@@ -14,7 +14,7 @@ if %errorlevel% == 0 (
     echo Downloading latest files from GitHub ...
     set "TMP=%TEMP%\sudoku_update_%RANDOM%"
     git clone --depth 1 --filter=blob:none --sparse https://github.com/refap3/claudeCode "%TMP%\repo" -q
-    git -C "%TMP%\repo" sparse-checkout set sudokusolver -q
+    git -C "%TMP%\repo" sparse-checkout set sudokusolver
     xcopy /E /Y "%TMP%\repo\sudokusolver\*" "%~dp0" >/dev/null
     rd /s /q "%TMP%" 2>/dev/null
 )
