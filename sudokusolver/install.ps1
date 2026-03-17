@@ -55,7 +55,7 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
 Write-Host "Creating virtual environment ..."
 python -m venv .venv
 Write-Host "Installing dependencies ..."
-.\.venv\Scripts\pip install --upgrade pip -q
+.\.venv\Scripts\python -m pip install --upgrade pip -q
 .\.venv\Scripts\pip install -r requirements.txt -q
 
 Write-Host ""

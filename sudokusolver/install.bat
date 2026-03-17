@@ -17,7 +17,7 @@ echo Creating virtual environment in .venv\ ...
 python -m venv .venv
 
 echo Installing dependencies ...
-.venv\Scripts\pip install --upgrade pip -q
+.venv\Scripts\python -m pip install --upgrade pip -q
 .venv\Scripts\pip install -r requirements.txt -q
 
 echo.

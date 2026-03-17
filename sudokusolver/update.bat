@@ -20,7 +20,7 @@ if %errorlevel% == 0 (
 )
 
 echo Updating dependencies ...
-.venv\Scripts\pip install --upgrade pip -q
+.venv\Scripts\python -m pip install --upgrade pip -q
 .venv\Scripts\pip install -r requirements.txt -q
 
 echo Update complete.
