@@ -69,11 +69,17 @@ def _get_clipboard() -> str:
             return subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
         elif sys.platform == "win32":
             import ctypes
+            CF_UNICODETEXT = 13
             ctypes.windll.user32.OpenClipboard(0)
-            handle = ctypes.windll.user32.GetClipboardData(1)
-            data = ctypes.c_char_p(handle).value or b""
+            handle = ctypes.windll.user32.GetClipboardData(CF_UNICODETEXT)
+            if handle:
+                ptr = ctypes.windll.kernel32.GlobalLock(handle)
+                data = ctypes.wstring_at(ptr)
+                ctypes.windll.kernel32.GlobalUnlock(handle)
+            else:
+                data = ""
             ctypes.windll.user32.CloseClipboard()
-            return data.decode("utf-8", errors="ignore")
+            return data
         else:
             for cmd in (["xclip", "-selection", "clipboard", "-o"], ["xsel", "-bo"]):
                 r = subprocess.run(cmd, capture_output=True, text=True)
