@@ -7,4 +7,4 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 
-.venv\Scripts\python sudoku_gui.py %*
+start "" .venv\Scripts\python sudoku_gui.py %*
