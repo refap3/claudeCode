@@ -612,8 +612,34 @@ async function loadPuzzle(values) {
     state.mode = 'solve';
     const diff = result.difficulty;
     const diffName = TIER_NAMES[diff] || 'Unknown';
-    setStatus(`Loaded: ${result.steps.length} steps, difficulty Tier ${diff} (${diffName})${result.stuck ? ', STUCK' : ''}`);
-    render();
+
+    if (result.stuck) {
+      setStatus(`Loaded: ${result.steps.length} steps, difficulty Tier ${diff} (${diffName}), STUCK — no human strategy available.`);
+      render();
+      if (confirm('No human strategy found. Continue with brute force?')) {
+        setStatus('Running brute force…');
+        const lastGrid = result.grid_states[result.grid_states.length - 1].values;
+        const bt = await apiBruteForce(lastGrid);
+        const btGridState = {
+          values: bt.solution,
+          givens: result.grid_states[result.grid_states.length - 1].givens,
+          candidates: bt.solution.map(row => row.map(d => d ? [] : [])),
+        };
+        state.steps.push({
+          index: state.steps.length,
+          strategy: 'Brute Force',
+          tier: 6,
+          explanation: `No human strategy could make progress. Brute-force backtracking solved the puzzle in ${bt.iterations.toLocaleString()} iterations.`,
+          placements: [], eliminations: [], house_type: null, house_index: null, pattern_cells: [],
+        });
+        state.gridStates.push(btGridState);
+        setStatus(`Solved with brute force after ${result.steps.length} human steps (${bt.iterations.toLocaleString()} BF iterations).`);
+        render();
+      }
+    } else {
+      setStatus(`Loaded: ${result.steps.length} steps, difficulty Tier ${diff} (${diffName})`);
+      render();
+    }
   } catch (e) {
     setStatus('Error: ' + e.message);
   }
