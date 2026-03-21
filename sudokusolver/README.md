@@ -113,7 +113,7 @@ ssh pi@$NEWHOST "cd ~/sudokusolver && docker compose up --build -d"
 | `1`–`9` | Digit filter |
 | `0` | Clear filter |
 
-**Input / Create mode:** `1`–`9` set digit · `0`/`Del` clear · Arrows move · `Enter` solve · `Esc` cancel · `Ctrl+Z/Y` undo/redo · `X` clear all
+**Input / Create mode:** `1`–`9` set digit and advance · `0` clear and advance · `Del`/`Backspace` clear in place · Arrows move · cursor wraps to next row after column 9 · `Enter` solve · `Esc` cancel · `Ctrl+Z/Y` undo/redo · `X` clear all
 
 **Play mode:** `1`–`9` fill · `M` mark mode · `K` clear marks · `H` hint · `C` cands · `Esc` exit
 
@@ -135,6 +135,8 @@ If `ANTHROPIC_API_KEY` is set as an environment variable on the server it is use
 The right-hand panel shows:
 - Current step strategy, tier, explanation, placements and eliminations
 - **All Steps** list — builds line by line as you advance: `1. R1C2=3  Naked Single`. Click any row to jump to that step.
+
+If no human strategy can make progress the solver stops and reports **STUCK**. A confirmation dialog offers to continue with **brute-force backtracking** — if accepted, the solution is appended as a final step showing how many backtracking iterations were needed.
 
 ---
 
@@ -201,7 +203,7 @@ python sudoku_gui.py sd0.txt   # explicit file
 | `Ctrl+V` / `Cmd+V` | Paste puzzle (text or image via Claude) |
 | `ESC` | Quit |
 
-**Input / Create mode:** `1`–`9` set · `0`/`Del` clear · Arrows move · `X` clear all · `Ctrl+Z/Y` undo/redo · `Enter` solve · `ESC` cancel
+**Input / Create mode:** `1`–`9` set and advance · `0` clear and advance · `Del`/`Backspace` clear in place · Arrows move · cursor wraps to next row after column 9 · `X` clear all · `Ctrl+Z/Y` undo/redo · `Enter` solve · `ESC` cancel
 
 **Play mode:** `1`–`9` fill/mark · `M` toggle fill/mark · `K` clear marks · `H` hint · `C` cands · `ESC` exit
 
