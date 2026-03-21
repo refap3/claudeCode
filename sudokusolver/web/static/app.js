@@ -1091,14 +1091,19 @@ function handleEditKey(e) {
     const [r, c] = state.selected;
     if (e.key >= '1' && e.key <= '9') {
       setEditDigit(r, c, parseInt(e.key));
-      moveSelection(0, 1);
+      advanceEditCursor(r, c);
     } else if (e.key === '0') {
       setEditDigit(r, c, 0);
-      moveSelection(0, 1);
+      advanceEditCursor(r, c);
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
       setEditDigit(r, c, 0);
     }
   }
+}
+
+function advanceEditCursor(r, c) {
+  if (c < 8) { moveSelection(0, 1); }
+  else if (r < 8) { state.selected = [r + 1, 0]; render(); }
 }
 
 function handlePlayKey(e) {
