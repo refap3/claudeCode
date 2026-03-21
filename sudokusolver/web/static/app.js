@@ -393,7 +393,7 @@ function renderPanel() {
   if (state.mode === 'input' || state.mode === 'create') {
     panelTitle.textContent = state.mode === 'create' ? 'Create Mode' : 'Input Mode';
     panelTier.textContent = '';
-    panelBody.textContent = 'Enter digits 1-9. Use arrows to move. Press SOLVE when done, or CANCEL.';
+    panelBody.textContent = 'Enter digits 1-9 (0 or Delete to clear). Use arrows to move. Press SOLVE when done, or CANCEL.';
     return;
   }
   if (state.mode === 'play') {
@@ -1092,7 +1092,10 @@ function handleEditKey(e) {
     if (e.key >= '1' && e.key <= '9') {
       setEditDigit(r, c, parseInt(e.key));
       moveSelection(0, 1);
-    } else if (e.key === '0' || e.key === 'Delete' || e.key === 'Backspace') {
+    } else if (e.key === '0') {
+      setEditDigit(r, c, 0);
+      moveSelection(0, 1);
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
       setEditDigit(r, c, 0);
     }
   }
@@ -1182,6 +1185,7 @@ svg.addEventListener('keydown', e => {
   if (state.mode === 'input' || state.mode === 'create') handleEditKey(e);
   else if (state.mode === 'play') handlePlayKey(e);
   else if (state.mode === 'solve') handleSolveKey(e);
+  e.stopPropagation();
 });
 
 // ── Timeline click ────────────────────────────────────────────────────────────
