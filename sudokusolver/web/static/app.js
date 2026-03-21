@@ -1181,12 +1181,6 @@ svg.addEventListener('click', e => {
   }
 });
 
-svg.addEventListener('keydown', e => {
-  if (state.mode === 'input' || state.mode === 'create') handleEditKey(e);
-  else if (state.mode === 'play') handlePlayKey(e);
-  else if (state.mode === 'solve') handleSolveKey(e);
-  e.stopPropagation();
-});
 
 // ── Timeline click ────────────────────────────────────────────────────────────
 document.getElementById('timeline-container').addEventListener('click', e => {
