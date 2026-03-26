@@ -23,7 +23,7 @@ Key sections of `car.py`:
 - **Main loop** (lines 226–419):
   - Event handling → player input → distance/nitro countdown → obstacle/depot/oil spawn & move → difficulty scaling → collision detection → render
 
-Collision detection uses `pygame.Rect.colliderect`. Difficulty scales every 10 km of distance: scroll speed increases by 1 per level and obstacle spawn frequency tightens (floor 20 frames). Nitro (5 s, press `N`) doubles all movement and lets the player destroy obstacles for bonus distance instead of taking damage.
+Collision detection uses `pygame.Rect.colliderect`. Difficulty scales every 10 km of distance: scroll speed increases by 1 per level and obstacle spawn frequency tightens (floor 20 frames). Nitro packs stack — each collected depot increments a counter. Press `N` to consume one pack (5 s boost); remaining packs are shown in the HUD (`NITRO x3 READY [N]` / `NITRO! 4s  (x2 queued)`). Active nitro doubles all movement and lets the player destroy obstacles for bonus distance instead of taking damage.
 
 ### battle.py
 
