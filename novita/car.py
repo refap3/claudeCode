@@ -68,7 +68,7 @@ distance = 0.0
 BONUS_DISTANCE_PER_KILL = 500
 
 # Nitro system
-nitro_available = False
+nitro_available = 0
 nitro_active = False
 nitro_timer = 0
 NITRO_DURATION = 300        # 5 seconds × 60 fps
@@ -209,7 +209,7 @@ def reset_game():
     speed = BASE_SPEED
     lives = 3
     distance = 0.0
-    nitro_available = False
+    nitro_available = 0
     nitro_active = False
     nitro_timer = 0
     nitro_depots = []
@@ -235,9 +235,9 @@ while running:
             elif event.key == pygame.K_r and game_over:
                 reset_game()
             elif event.key == pygame.K_n and not game_over:
-                if nitro_available and not nitro_active:
+                if nitro_available > 0 and not nitro_active:
                     nitro_active = True
-                    nitro_available = False
+                    nitro_available -= 1
                     nitro_timer = NITRO_DURATION
 
     # Speed multiplier: nitro doubles all movement
@@ -339,7 +339,7 @@ while running:
             depot_rect = pygame.Rect(depot[0], depot[1], 40, 35)
             if player_rect.colliderect(depot_rect):
                 nitro_depots.remove(depot)
-                nitro_available = True
+                nitro_available += 1
 
         # Oil spot collision — random horizontal teleport
         for oil in oil_spots[:]:
@@ -382,9 +382,10 @@ while running:
     next_km = (difficulty_level + 1) * DISTANCE_PER_LEVEL / 1000
     screen.blit(font.render(f"Level: {difficulty_level}  (next {next_km:.0f} km)", True, TEXT_COLOR), (20, 96))
     if nitro_active:
-        screen.blit(font.render(f"NITRO! {nitro_timer // 60 + 1}s", True, (255, 200, 0)), (20, 134))
-    elif nitro_available:
-        screen.blit(font.render("NITRO READY [N]", True, NITRO_GREEN), (20, 134))
+        label = f"NITRO! {nitro_timer // 60 + 1}s  (x{nitro_available} queued)"
+        screen.blit(font.render(label, True, (255, 200, 0)), (20, 134))
+    elif nitro_available > 0:
+        screen.blit(font.render(f"NITRO x{nitro_available} READY [N]", True, NITRO_GREEN), (20, 134))
 
     # Level-up banner
     if level_up_timer > 0:

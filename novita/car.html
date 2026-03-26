@@ -76,7 +76,7 @@ function resetGame() {
   speed             = BASE_SPEED;
   lives             = 3;
   distance          = 0;
-  nitro_available   = false;
+  nitro_available   = 0;
   nitro_active      = false;
   nitro_timer       = 0;
   nitro_depots      = [];
@@ -109,9 +109,9 @@ document.addEventListener('keydown', e => {
     resetGame();
   }
   if ((e.key === 'n' || e.key === 'N') && !game_over) {
-    if (nitro_available && !nitro_active) {
+    if (nitro_available > 0 && !nitro_active) {
       nitro_active    = true;
-      nitro_available = false;
+      nitro_available -= 1;
       nitro_timer     = NITRO_DURATION;
     }
   }
@@ -354,7 +354,7 @@ function loop(ts) {
       const [dx, dy] = nitro_depots[i];
       if (px < dx + 40 && px + pw > dx && py < dy + 35 && py + ph > dy) {
         nitro_depots.splice(i, 1);
-        nitro_available = true;
+        nitro_available += 1;
       }
     }
     for (let i = oil_spots.length - 1; i >= 0; i--) {
@@ -394,9 +394,9 @@ function loop(ts) {
   const next_km = ((difficulty_level + 1) * DISTANCE_PER_LEVEL / 1000).toFixed(0);
   text(`Level: ${difficulty_level}  (next ${next_km} km)`, 20, 98);
   if (nitro_active) {
-    text(`NITRO! ${Math.ceil(nitro_timer / 60)}s`, 20, 128, '#FFC800');
-  } else if (nitro_available) {
-    text('NITRO READY [N]', 20, 128, NITRO_GREEN);
+    text(`NITRO! ${Math.ceil(nitro_timer / 60)}s  (x${nitro_available} queued)`, 20, 128, '#FFC800');
+  } else if (nitro_available > 0) {
+    text(`NITRO x${nitro_available} READY [N]`, 20, 128, NITRO_GREEN);
   }
 
   // Level-up banner
