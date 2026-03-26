@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Car Racing — How Far Can You Go?</title>
+<style>
+  body { margin: 0; background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="canvas" width="1600" height="1200"></canvas>
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+// Colors
+const SKY_BLUE       = '#87CEEB';
+const ROAD_GRAY      = '#323232';
+const ROAD_LINE      = '#FFFFFF';
+const CAR_RED        = '#DC1414';
+const CAR_BLUE       = '#1E90FF';
+const CAR_GREEN      = '#228B22';
+const CAR_YELLOW     = '#FFD700';
+const TEXT_COLOR     = '#000000';
+const OBSTACLE_COLORS = [CAR_RED, CAR_BLUE, CAR_GREEN, CAR_YELLOW];
+const NITRO_GREEN    = '#00DC50';
+const NITRO_GLOW     = '#B4FF64';
+const OIL_COLOR      = '#0F0A05';
+const WHEEL_TIRE     = '#0F0F0F';
+const WHEEL_RIM      = '#828282';
+const WING_BAR      = '#2D2D2D';
+const WING_PLATE    = '#FFC800';
+
+// Layout
+const WIDTH  = 1600;
+const HEIGHT = 1200;
+const FPS    = 60;
+
+const road_width = 400;
+const road_x     = (WIDTH - road_width) / 2;
+const line_height = 40;
+const line_width  = 20;
+const line_gap    = 40;
+
+const player_width  = 50;
+const player_height = 80;
+const player_y      = HEIGHT - player_height - 20;
+
+// Difficulty
+const DISTANCE_PER_LEVEL    = 10000;
+const BASE_SPEED             = 5;
+const BASE_OBSTACLE_FREQ     = 60;
+const LEVEL_UP_DISPLAY       = 180;
+const BONUS_DISTANCE_PER_KILL = 500;
+const NITRO_DURATION         = 300;
+const DEPOT_SPAWN_INTERVAL   = 240;
+const OIL_SPAWN_INTERVAL     = 180;
+const max_speed    = 10;
+const acceleration = 0.2;
+const deceleration = 0.1;
+
+// ---- Game state ----
+let player_x, player_speed, obstacles, score, game_over, speed, lives;
+let distance, nitro_available, nitro_active, nitro_timer;
+let nitro_depots, depot_spawn_timer, oil_spots, oil_spawn_timer;
+let obstacle_timer, difficulty_level, obstacle_frequency, level_up_timer;
+let road_lines = [];
+
+function resetGame() {
+  player_x          = WIDTH / 2 - player_width / 2;
+  player_speed      = 0;
+  obstacles         = [];
+  score             = 0;
+  game_over         = false;
+  speed             = BASE_SPEED;
+  lives             = 3;
+  distance          = 0;
+  nitro_available   = false;
+  nitro_active      = false;
+  nitro_timer       = 0;
+  nitro_depots      = [];
+  depot_spawn_timer = 0;
+  oil_spots         = [];
+  oil_spawn_timer   = 0;
+  obstacle_timer    = 0;
+  difficulty_level  = 0;
+  obstacle_frequency = BASE_OBSTACLE_FREQ;
+  level_up_timer    = 0;
+
+  road_lines = [];
+  for (let i = 0; i < 20; i++) {
+    const y = i * (line_height + line_gap);
+    road_lines.push({ x: road_x + road_width / 2 - line_width / 2, y, w: line_width, h: line_height });
+  }
+}
+
+resetGame();
+
+// ---- Input ----
+const keys = {};
+document.addEventListener('keydown', e => {
+  keys[e.key] = true;
+
+  if ((e.key === 'Escape' || e.key === 'q' || e.key === 'Q') && !game_over) {
+    // no quit in browser — ignore
+  }
+  if ((e.key === 'r' || e.key === 'R') && game_over) {
+    resetGame();
+  }
+  if ((e.key === 'n' || e.key === 'N') && !game_over) {
+    if (nitro_available && !nitro_active) {
+      nitro_active    = true;
+      nitro_available = false;
+      nitro_timer     = NITRO_DURATION;
+    }
+  }
+  // Prevent arrow keys scrolling the page
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+});
+document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+// ---- Draw helpers ----
+
+function roundedRect(x, y, w, h, r, fillColor, strokeColor, lineWidth) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+  if (fillColor) { ctx.fillStyle = fillColor; ctx.fill(); }
+  if (strokeColor) { ctx.strokeStyle = strokeColor; ctx.lineWidth = lineWidth || 1; ctx.stroke(); }
+}
+
+function drawPlayerCar(x, y, nitro) {
+  // Wheels
+  const wheels = [[x - 3, y + 12], [x + 45, y + 12], [x - 3, y + 52], [x + 45, y + 52]];
+  for (const [wx, wy] of wheels) {
+    roundedRect(wx, wy, 8, 18, 3, WHEEL_TIRE);
+    roundedRect(wx + 1, wy + 4, 6, 10, 2, WHEEL_RIM);
+  }
+
+  // Front wing
+  roundedRect(x - 5, y + 4, 60, 7, 2, WING_BAR);
+  roundedRect(x - 5, y + 2, 8, 11, 2, WING_PLATE);
+  roundedRect(x + 47, y + 2, 8, 11, 2, WING_PLATE);
+
+  // Rear wing
+  roundedRect(x - 5, y + 70, 60, 7, 2, WING_BAR);
+  roundedRect(x - 5, y + 68, 8, 11, 2, WING_PLATE);
+  roundedRect(x + 47, y + 68, 8, 11, 2, WING_PLATE);
+
+  // Main body polygon
+  const body_color   = nitro ? NITRO_GLOW : CAR_RED;
+  const body_outline = nitro ? '#78C83C'  : '#A00000';
+  const body_points  = [
+    [x + 18, y +  5],
+    [x + 32, y +  5],
+    [x + 42, y + 25],
+    [x + 43, y + 55],
+    [x + 40, y + 75],
+    [x + 10, y + 75],
+    [x +  7, y + 55],
+    [x +  8, y + 25],
+  ];
+  ctx.beginPath();
+  ctx.moveTo(body_points[0][0], body_points[0][1]);
+  for (let i = 1; i < body_points.length; i++) ctx.lineTo(body_points[i][0], body_points[i][1]);
+  ctx.closePath();
+  ctx.fillStyle = body_color; ctx.fill();
+  ctx.strokeStyle = body_outline; ctx.lineWidth = 2; ctx.stroke();
+
+  // Racing stripe
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(x + 22, y + 5, 6, 70);
+
+  // Cockpit
+  ctx.beginPath();
+  ctx.ellipse(x + 25, y + 33, 8, 11, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#191919'; ctx.fill();
+  ctx.strokeStyle = '#505050'; ctx.lineWidth = 1; ctx.stroke();
+
+  // Headlights
+  roundedRect(x +  8, y + 5, 8, 4, 1, '#FFDC00');
+  roundedRect(x + 34, y + 5, 8, 4, 1, '#FFDC00');
+
+  // Nitro flames
+  if (nitro) {
+    ctx.beginPath(); ctx.arc(x + 19, y + 82, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#FF9600'; ctx.fill();
+    ctx.beginPath(); ctx.arc(x + 19, y + 82, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFE600'; ctx.fill();
+    ctx.beginPath(); ctx.arc(x + 31, y + 82, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#FF9600'; ctx.fill();
+    ctx.beginPath(); ctx.arc(x + 31, y + 82, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFE600'; ctx.fill();
+  }
+}
+
+function drawObstacleCar(x, y, color) {
+  roundedRect(x, y, player_width, player_height, 10, color, '#000000', 3);
+  // Windows
+  roundedRect(x + 5, y + 5, player_width - 10, 20, 5, '#ADD8E6');
+  roundedRect(x + 5, y + player_height - 25, player_width - 10, 20, 5, '#ADD8E6');
+  // Taillights
+  roundedRect(x + 5, y + 5, 10, 5, 2, '#FF0000');
+  roundedRect(x + player_width - 15, y + 5, 10, 5, 2, '#FF0000');
+}
+
+function drawNitroDepot(x, y) {
+  roundedRect(x, y, 40, 35, 5, NITRO_GREEN, '#009632', 2);
+  // Lightning bolt polygon
+  ctx.beginPath();
+  ctx.moveTo(x + 22, y +  4);
+  ctx.lineTo(x + 14, y + 18);
+  ctx.lineTo(x + 20, y + 18);
+  ctx.lineTo(x + 18, y + 31);
+  ctx.lineTo(x + 26, y + 17);
+  ctx.lineTo(x + 20, y + 17);
+  ctx.closePath();
+  ctx.fillStyle = '#FFE600'; ctx.fill();
+}
+
+function drawOilSpot(x, y) {
+  ctx.beginPath();
+  ctx.ellipse(x + 30, y + 11, 30, 11, 0, 0, Math.PI * 2);
+  ctx.fillStyle = OIL_COLOR; ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(x + 23, y + 9, 15, 5, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#28190A'; ctx.fill();
+}
+
+// ---- Helpers ----
+function pickSpawnX(width, margin = 10, attempts = 8) {
+  const blocked = obstacles.map(o => o[0])
+    .concat(nitro_depots.map(d => d[0]))
+    .concat(oil_spots.map(o => o[0]));
+  for (let i = 0; i < attempts; i++) {
+    const x = road_x + Math.floor(Math.random() * (road_width - width));
+    if (blocked.every(bx => Math.abs(x - bx) > width + margin)) return x;
+  }
+  return road_x + Math.floor(Math.random() * (road_width - width));
+}
+
+function text(str, x, y, color = TEXT_COLOR, size = 22, align = 'left') {
+  ctx.font = `${size}px sans-serif`;
+  ctx.fillStyle = color;
+  ctx.textAlign = align;
+  ctx.fillText(str, x, y);
+}
+
+function textWidth(str, size = 22) {
+  ctx.font = `${size}px sans-serif`;
+  return ctx.measureText(str).width;
+}
+
+// ---- Main loop ----
+let lastTime = 0;
+
+function loop(ts) {
+  const dt = Math.min((ts - lastTime) / (1000 / FPS), 3); // cap to prevent spiral
+  lastTime = ts;
+
+  const speed_mult = nitro_active ? 2 : 1;
+
+  if (!game_over) {
+    // Player controls
+    if (keys['ArrowUp'])   player_speed = Math.min(player_speed + acceleration * dt, max_speed);
+    else if (keys['ArrowDown']) player_speed = Math.max(player_speed - acceleration * dt, 0);
+    else player_speed = Math.max(player_speed - deceleration * dt, 0);
+
+    if (keys['ArrowLeft']  && player_x > road_x)                         player_x -= 5 * dt;
+    if (keys['ArrowRight'] && player_x < road_x + road_width - player_width) player_x += 5 * dt;
+
+    distance += (speed + player_speed) * speed_mult * 0.5 * dt;
+
+    // Nitro countdown
+    if (nitro_active) {
+      nitro_timer -= dt;
+      if (nitro_timer <= 0) nitro_active = false;
+    }
+
+    // Obstacles
+    obstacle_timer += dt;
+    if (obstacle_timer >= obstacle_frequency) {
+      obstacle_timer = 0;
+      obstacles.push([pickSpawnX(player_width), -player_height, OBSTACLE_COLORS[Math.floor(Math.random() * 4)]]);
+    }
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+      obstacles[i][1] += (speed + player_speed) * speed_mult * dt;
+      if (obstacles[i][1] > HEIGHT) { obstacles.splice(i, 1); score += 1; }
+    }
+
+    // Nitro depots
+    depot_spawn_timer += dt;
+    if (depot_spawn_timer >= DEPOT_SPAWN_INTERVAL) {
+      depot_spawn_timer = 0;
+      nitro_depots.push([pickSpawnX(40), -40]);
+    }
+    for (let i = nitro_depots.length - 1; i >= 0; i--) {
+      nitro_depots[i][1] += (speed + player_speed) * speed_mult * dt;
+      if (nitro_depots[i][1] > HEIGHT) nitro_depots.splice(i, 1);
+    }
+
+    // Oil spots
+    oil_spawn_timer += dt;
+    if (oil_spawn_timer >= OIL_SPAWN_INTERVAL) {
+      oil_spawn_timer = 0;
+      oil_spots.push([pickSpawnX(60), -25]);
+    }
+    for (let i = oil_spots.length - 1; i >= 0; i--) {
+      oil_spots[i][1] += (speed + player_speed) * speed_mult * dt;
+      if (oil_spots[i][1] > HEIGHT) oil_spots.splice(i, 1);
+    }
+
+    // Road lines
+    for (const line of road_lines) {
+      line.y += (speed + player_speed) * speed_mult * dt;
+      if (line.y > HEIGHT) line.y = -line_height;
+    }
+
+    // Difficulty scaling
+    const new_level = Math.floor(distance / DISTANCE_PER_LEVEL);
+    if (new_level > difficulty_level) {
+      difficulty_level = new_level;
+      speed = BASE_SPEED + difficulty_level;
+      obstacle_frequency = Math.max(20, BASE_OBSTACLE_FREQ - difficulty_level * 5);
+      level_up_timer = LEVEL_UP_DISPLAY;
+    }
+    if (level_up_timer > 0) level_up_timer -= dt;
+
+    // Collision — player rect
+    const px = player_x, py = player_y, pw = player_width, ph = player_height;
+
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+      const [ox, oy] = obstacles[i];
+      if (px < ox + pw && px + pw > ox && py < oy + ph && py + ph > oy) {
+        obstacles.splice(i, 1);
+        if (nitro_active) {
+          distance += BONUS_DISTANCE_PER_KILL;
+        } else {
+          lives--;
+          if (lives <= 0) game_over = true;
+        }
+      }
+    }
+    for (let i = nitro_depots.length - 1; i >= 0; i--) {
+      const [dx, dy] = nitro_depots[i];
+      if (px < dx + 40 && px + pw > dx && py < dy + 35 && py + ph > dy) {
+        nitro_depots.splice(i, 1);
+        nitro_available = true;
+      }
+    }
+    for (let i = oil_spots.length - 1; i >= 0; i--) {
+      const [ox, oy] = oil_spots[i];
+      if (px < ox + 60 && px + pw > ox && py < oy + 22 && py + ph > oy) {
+        oil_spots.splice(i, 1);
+        player_x = road_x + Math.floor(Math.random() * (road_width - player_width));
+      }
+    }
+  }
+
+  // ---- Render ----
+  ctx.fillStyle = SKY_BLUE;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  // Road
+  ctx.fillStyle = ROAD_GRAY;
+  ctx.fillRect(road_x, 0, road_width, HEIGHT);
+
+  // Oil spots
+  for (const [ox, oy] of oil_spots) drawOilSpot(ox, oy);
+
+  // Nitro depots
+  for (const [dx, dy] of nitro_depots) drawNitroDepot(dx, dy);
+
+  // Road lines
+  ctx.fillStyle = ROAD_LINE;
+  for (const line of road_lines) ctx.fillRect(line.x, line.y, line.w, line.h);
+
+  // Cars
+  drawPlayerCar(player_x, player_y, nitro_active);
+  for (const [ox, oy, oc] of obstacles) drawObstacleCar(ox, oy, oc);
+
+  // HUD — left
+  text(`Score: ${score}`,                       20, 38);
+  text(`Dist:  ${(distance/1000).toFixed(2)} km`, 20, 68);
+  const next_km = ((difficulty_level + 1) * DISTANCE_PER_LEVEL / 1000).toFixed(0);
+  text(`Level: ${difficulty_level}  (next ${next_km} km)`, 20, 98);
+  if (nitro_active) {
+    text(`NITRO! ${Math.ceil(nitro_timer / 60)}s`, 20, 128, '#FFC800');
+  } else if (nitro_available) {
+    text('NITRO READY [N]', 20, 128, NITRO_GREEN);
+  }
+
+  // Level-up banner
+  if (level_up_timer > 0) {
+    const alpha = Math.min(1, level_up_timer / 64);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    const banner = `LEVEL ${difficulty_level}!`;
+    const bw = textWidth(banner, 64);
+    text(banner, WIDTH / 2 - bw / 2, HEIGHT / 2 - 30, '#FFDC00', 64, 'left');
+    ctx.restore();
+  }
+
+  // HUD — centre (speed)
+  const speed_str = `Speed: ${Math.floor(player_speed * 10)}`;
+  text(speed_str, WIDTH / 2, 38, TEXT_COLOR, 22, 'center');
+
+  // HUD — right (lives)
+  text(`Lives: ${lives}`, WIDTH - 20, 38, TEXT_COLOR, 22, 'right');
+
+  // Controls hint
+  text('UP/DOWN: speed   LEFT/RIGHT: steer   N: nitro   R: restart',
+       WIDTH / 2, HEIGHT - 16, TEXT_COLOR, 18, 'center');
+
+  // Game over overlay
+  if (game_over) {
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    text('GAME OVER!', WIDTH / 2, HEIGHT / 2 - 60, TEXT_COLOR, 64, 'center');
+    text(`Distance: ${(distance/1000).toFixed(2)} km`, WIDTH / 2, HEIGHT / 2 + 20, '#B40000', 28, 'center');
+    text('Press R to restart', WIDTH / 2, HEIGHT / 2 + 70, TEXT_COLOR, 28, 'center');
+  }
+
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(ts => { lastTime = ts; requestAnimationFrame(loop); });
+</script>
+</body>
+</html>
