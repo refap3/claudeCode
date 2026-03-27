@@ -4,22 +4,6 @@ A collection of terminal-based Python games and simulations created with Claude 
 
 ## Projects
 
-### 🎮 [Racing Game](./racing)
-
-A terminal-based first-person arcade racing game (like OutRun) with physics-based car movement on an oval track.
-
-- First-person perspective rendering with track curvature
-- Real-time physics simulation with velocity, acceleration, and friction
-- Lap timing and tracking system
-- Arrow key controls with intuitive handling
-- Curses-based terminal rendering
-
-**Quick start:**
-```bash
-cd racing
-python3 racing_game.py
-```
-
 ### 🔬 [Conway's Game of Life](./life)
 
 A terminal implementation of Conway's Game of Life with interactive controls and visualization.
@@ -111,7 +95,6 @@ python sudoku_tutor.py sd0.txt --auto   # non-interactive full log
 ## Requirements
 
 - Python 3.x
-- For racing game: curses library (standard on Unix/macOS, requires windows-curses on Windows)
 - For Game of Life: numpy
 - For space shooter / novita games: pygame
 

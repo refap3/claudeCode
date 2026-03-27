@@ -12,10 +12,6 @@ This is a collection of terminal-based Python games and simulations. The reposit
   - Has its own CLAUDE.md with detailed architecture guidance
   - Entry point: `python main.py`
 
-- **`racing/`**: First-person arcade racing game using curses
-  - Has its own CLAUDE.md with detailed architecture guidance
-  - Entry point: `python3 racing_game.py`
-
 - **`space/`**: Space shooter game using pygame
   - Entry point: `python3 space3.py`
 
@@ -37,11 +33,6 @@ Each project is self-contained. Navigate to its directory and run:
 cd life
 pip install -r requirements.txt
 python main.py
-
-# Racing Game
-cd racing
-# On Windows: pip install windows-curses
-python3 racing_game.py
 
 # Space Shooter
 cd space
@@ -66,7 +57,6 @@ All projects are designed for Windows compatibility:
 2. **Input Handling**: Windows uses `msvcrt` for non-blocking keyboard input instead of Unix `termios`/`tty`. Arrow keys on Windows produce two-byte sequences (`\xe0` or `\x00` + key code).
 
 3. **Terminal Libraries**:
-   - curses: Requires `windows-curses` package on Windows
    - Projects using raw ANSI codes work on standard Windows terminal
 
 ## Architecture Patterns
@@ -90,12 +80,11 @@ Input handlers typically wrap platform-specific code in a context manager for cl
 ### Performance
 
 - **Game of Life**: Uses NumPy vectorized operations (no Python loops over cells)
-- **Racing Game**: Curses-based rendering with minimal redraws
-- **Space Shooter**: Pygame with 60 FPS target
+- **Space Shooter / Novita Games**: Pygame with 60 FPS target
 
 ## Testing
 
-Projects include test files (e.g., `test_*.py` in racing/) for specific components. No unified test framework - tests are run directly with `python`.
+No unified test framework — tests are run directly with `python` where present.
 
 ## Adding New Projects
 
