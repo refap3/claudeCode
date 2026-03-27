@@ -1,3 +1,4 @@
+import math
 import os
 import pygame
 import random
@@ -34,6 +35,8 @@ WHEEL_TIRE = (15, 15, 15)
 WHEEL_RIM = (130, 130, 130)
 WING_BAR = (45, 45, 45)
 WING_PLATE = (255, 200, 0)   # yellow endplates — visible on dark road
+PRESIDENT_ORANGE = (255, 100, 0)
+PRESIDENT_OUTLINE = (187, 58, 0)
 
 # Game variables
 clock = pygame.time.Clock()
@@ -54,6 +57,8 @@ deceleration = 0.1
 lives = 3
 font = pygame.font.SysFont(None, 36)
 big_font = pygame.font.SysFont(None, 72)
+alert_font = pygame.font.SysFont(None, 52)
+president_font = pygame.font.SysFont(None, 22)
 
 # Difficulty progression
 difficulty_level = 0
@@ -91,6 +96,18 @@ player_y = HEIGHT - player_height - 20
 obstacles = []
 obstacle_frequency = 60  # frames between obstacle spawns
 obstacle_timer = 0
+
+# President
+PRESIDENT_WIDTH            = 260
+PRESIDENT_HEIGHT           = 110
+PRESIDENT_SPEED            = 13    # px per frame — fast!
+PRESIDENT_SPAWN_INTERVAL   = 1200  # ~20 s before first / next
+PRESIDENT_WARNING_DURATION = 50    # ~0.83 s warning flash
+
+# President state
+president = None          # None or [x, y]
+president_warning = 0     # countdown frames; >0 = warning showing
+president_spawn_timer = 0
 
 # Create road lines
 for i in range(20):
@@ -183,6 +200,59 @@ def draw_oil_spot(x, y):
     pygame.draw.ellipse(screen, (40, 25, 10), (x + 8, y + 4, 30, 10))
 
 
+def draw_president_car(x, y):
+    w, h = PRESIDENT_WIDTH, PRESIDENT_HEIGHT
+
+    # Massive orange body
+    pygame.draw.rect(screen, PRESIDENT_ORANGE, (x, y, w, h), border_radius=14)
+    pygame.draw.rect(screen, PRESIDENT_OUTLINE, (x, y, w, h), 5, border_radius=14)
+
+    # Windshield at bottom (front faces player — oncoming)
+    wshield_rect = (x + 30, y + h - 45, w - 60, 32)
+    pygame.draw.rect(screen, (110, 206, 255), wshield_rect, border_radius=6)
+    pygame.draw.rect(screen, (58, 136, 187), wshield_rect, 2, border_radius=6)
+
+    # Angry eyebrow slashes across windshield
+    pygame.draw.line(screen, (0, 0, 0), (x + 35, y + h - 44), (x + w//2 - 10, y + h - 36), 5)
+    pygame.draw.line(screen, (0, 0, 0), (x + w - 35, y + h - 44), (x + w//2 + 10, y + h - 36), 5)
+
+    # Headlights at bottom (front)
+    pygame.draw.rect(screen, (255, 238, 68), (x + 12, y + h - 16, 40, 10), border_radius=3)
+    pygame.draw.rect(screen, (204, 153, 0), (x + 12, y + h - 16, 40, 10), 1, border_radius=3)
+    pygame.draw.rect(screen, (255, 238, 68), (x + w - 52, y + h - 16, 40, 10), border_radius=3)
+    pygame.draw.rect(screen, (204, 153, 0), (x + w - 52, y + h - 16, 40, 10), 1, border_radius=3)
+
+    # Taillights at top (rear)
+    pygame.draw.rect(screen, (255, 34, 34), (x + 12, y + 6, 40, 10), border_radius=3)
+    pygame.draw.rect(screen, (170, 0, 0), (x + 12, y + 6, 40, 10), 1, border_radius=3)
+    pygame.draw.rect(screen, (255, 34, 34), (x + w - 52, y + 6, 40, 10), border_radius=3)
+    pygame.draw.rect(screen, (170, 0, 0), (x + w - 52, y + 6, 40, 10), 1, border_radius=3)
+
+    # Stars & stripes accent on hood
+    for s in range(5):
+        stripe_color = (204, 34, 0) if s % 2 == 0 else (255, 255, 255)
+        pygame.draw.rect(screen, stripe_color, (x + 30 + s * 14, y + 20, 14, 10))
+    pygame.draw.rect(screen, (0, 51, 153), (x + 30, y + 20, 28, 10))
+    for sx, sy in [(x + 36, y + 24), (x + 44, y + 24), (x + 40, y + 28)]:
+        pygame.draw.circle(screen, (255, 255, 255), (sx, sy), 2)
+
+    # Big wheels on each side (6 total — three per side for drama)
+    for wy in [y + 15, y + 45, y + 75]:
+        pygame.draw.rect(screen, WHEEL_TIRE, (x - 10, wy, 12, 22), border_radius=3)
+        pygame.draw.rect(screen, (85, 85, 85), (x - 9, wy + 4, 10, 14), border_radius=2)
+        pygame.draw.rect(screen, WHEEL_TIRE, (x + w - 2, wy, 12, 22), border_radius=3)
+        pygame.draw.rect(screen, (85, 85, 85), (x + w - 1, wy + 4, 10, 14), border_radius=2)
+
+    # "MAD ORANGE PRESIDENT" label
+    label = president_font.render("MAD ORANGE PRESIDENT", True, (255, 255, 255))
+    outline = president_font.render("MAD ORANGE PRESIDENT", True, (0, 0, 0))
+    lx = x + w // 2 - label.get_width() // 2
+    ly = y + h // 2 - label.get_height() // 2
+    for dx, dy in [(-1, -1), (1, -1), (-1, 1), (1, 1)]:
+        screen.blit(outline, (lx + dx, ly + dy))
+    screen.blit(label, (lx, ly))
+
+
 def pick_spawn_x(width, margin=10, attempts=8):
     """Return a random road x that doesn't x-overlap with any on-screen item."""
     blocked = [obs[0] for obs in obstacles] + \
@@ -201,6 +271,7 @@ def reset_game():
     global distance, nitro_available, nitro_active, nitro_timer
     global nitro_depots, depot_spawn_timer, oil_spots, oil_spawn_timer
     global obstacle_timer, difficulty_level, obstacle_frequency, level_up_timer
+    global president, president_warning, president_spawn_timer
     player_x = WIDTH // 2 - player_width // 2
     player_speed = 0
     obstacles = []
@@ -220,6 +291,9 @@ def reset_game():
     difficulty_level = 0
     obstacle_frequency = BASE_OBSTACLE_FREQ
     level_up_timer = 0
+    president = None
+    president_warning = 0
+    president_spawn_timer = 0
 
 
 # Main game loop
@@ -234,11 +308,6 @@ while running:
                 running = False
             elif event.key == pygame.K_r and game_over:
                 reset_game()
-            elif event.key == pygame.K_n and not game_over:
-                if nitro_available > 0 and not nitro_active:
-                    nitro_active = True
-                    nitro_available -= 1
-                    nitro_timer = NITRO_DURATION
 
     # Speed multiplier: nitro doubles all movement
     speed_mult = 2 if nitro_active else 1
@@ -257,6 +326,12 @@ while running:
             player_x -= 5
         if keys[pygame.K_RIGHT] and player_x < road_x + road_width - player_width:
             player_x += 5
+
+        # Nitro — hold N to keep consuming packs continuously
+        if keys[pygame.K_n] and nitro_available > 0 and not nitro_active:
+            nitro_active = True
+            nitro_available -= 1
+            nitro_timer = NITRO_DURATION
 
         # Accumulate distance (scaled to give sensible meter values)
         distance += (speed + player_speed) * speed_mult * 0.5
@@ -313,13 +388,40 @@ while running:
         if new_level > difficulty_level:
             difficulty_level = new_level
             speed = BASE_SPEED + difficulty_level          # +1 scroll speed per level
-            obstacle_frequency = max(20, BASE_OBSTACLE_FREQ - difficulty_level * 5)  # denser traffic, floor 20
+            obstacle_frequency = max(20, BASE_OBSTACLE_FREQ - difficulty_level * 5)
             level_up_timer = LEVEL_UP_DISPLAY
 
         if level_up_timer > 0:
             level_up_timer -= 1
 
-        # Collision detection
+        # ---- President spawn logic ----
+        if president is None and president_warning <= 0:
+            president_spawn_timer += 1
+            if president_spawn_timer >= PRESIDENT_SPAWN_INTERVAL:
+                president_spawn_timer = 0
+                president_warning = PRESIDENT_WARNING_DURATION
+
+        if president_warning > 0:
+            president_warning -= 1
+            if president_warning == 0 and president is None:
+                president = [
+                    road_x + (road_width - PRESIDENT_WIDTH) // 2,
+                    -PRESIDENT_HEIGHT,
+                ]
+
+        if president is not None:
+            president[1] += PRESIDENT_SPEED
+
+            # Crush all obstacles in his path
+            pres_rect = pygame.Rect(president[0], president[1], PRESIDENT_WIDTH, PRESIDENT_HEIGHT)
+            for obs in obstacles[:]:
+                if pres_rect.colliderect(pygame.Rect(obs[0], obs[1], player_width, player_height)):
+                    obstacles.remove(obs)
+
+            if president[1] > HEIGHT:
+                president = None
+
+        # ---- Collision detection ----
         player_rect = pygame.Rect(player_x, player_y, player_width, player_height)
 
         for obstacle in obstacles[:]:
@@ -327,12 +429,18 @@ while running:
             if player_rect.colliderect(obstacle_rect):
                 obstacles.remove(obstacle)
                 if nitro_active:
-                    # Nitro kill — bonus distance instead of damage
                     distance += BONUS_DISTANCE_PER_KILL
                 else:
                     lives -= 1
                     if lives <= 0:
                         game_over = True
+
+        # President collision — instant death
+        if president is not None:
+            pres_rect = pygame.Rect(president[0], president[1], PRESIDENT_WIDTH, PRESIDENT_HEIGHT)
+            if player_rect.colliderect(pres_rect):
+                lives = 0
+                game_over = True
 
         # Nitro depot collection
         for depot in nitro_depots[:]:
@@ -376,6 +484,10 @@ while running:
     for obstacle in obstacles:
         draw_obstacle_car(obstacle[0], obstacle[1], obstacle[2])
 
+    # President car (drawn on top of everything)
+    if president is not None:
+        draw_president_car(president[0], president[1])
+
     # HUD — left column
     screen.blit(font.render(f"Score: {score}", True, TEXT_COLOR), (20, 20))
     screen.blit(font.render(f"Dist:  {distance/1000:.2f} km", True, TEXT_COLOR), (20, 58))
@@ -385,7 +497,7 @@ while running:
         label = f"NITRO! {nitro_timer // 60 + 1}s  (x{nitro_available} queued)"
         screen.blit(font.render(label, True, (255, 200, 0)), (20, 134))
     elif nitro_available > 0:
-        screen.blit(font.render(f"NITRO x{nitro_available} READY [N]", True, NITRO_GREEN), (20, 134))
+        screen.blit(font.render(f"NITRO x{nitro_available} READY [hold N]", True, NITRO_GREEN), (20, 134))
 
     # Level-up banner
     if level_up_timer > 0:
@@ -394,6 +506,18 @@ while running:
         lu_surf.set_alpha(alpha)
         screen.blit(lu_surf, (WIDTH//2 - lu_surf.get_width()//2, HEIGHT//2 - 60))
 
+    # President warning — flashing alert banner
+    if president_warning > 0:
+        flash = (president_warning % 12) < 9   # visible most of the time, brief blink off
+        if flash:
+            banner_surf = pygame.Surface((560, 70))
+            banner_surf.set_alpha(210)
+            banner_surf.fill((51, 0, 0))
+            screen.blit(banner_surf, (WIDTH//2 - 280, HEIGHT//2 - 45))
+            pygame.draw.rect(screen, (255, 34, 0), (WIDTH//2 - 280, HEIGHT//2 - 45, 560, 70), 3)
+            warn = alert_font.render(">>> MAD ORANGE PRESIDENT <<<", True, (255, 100, 0))
+            screen.blit(warn, (WIDTH//2 - warn.get_width()//2, HEIGHT//2 - 26))
+
     # HUD — right / centre
     lives_text = font.render(f"Lives: {lives}", True, TEXT_COLOR)
     screen.blit(lives_text, (WIDTH - lives_text.get_width() - 20, 20))
@@ -401,7 +525,7 @@ while running:
     screen.blit(speed_text, (WIDTH//2 - speed_text.get_width()//2, 20))
 
     # Controls hint
-    ctrl = font.render("UP/DOWN: speed   LEFT/RIGHT: steer   N: nitro   ESC/Q: quit", True, TEXT_COLOR)
+    ctrl = font.render("UP/DOWN: speed   LEFT/RIGHT: steer   hold N: nitro   ESC/Q: quit", True, TEXT_COLOR)
     screen.blit(ctrl, (WIDTH//2 - ctrl.get_width()//2, HEIGHT - 40))
 
     # Game over overlay

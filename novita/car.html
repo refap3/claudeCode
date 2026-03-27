@@ -60,12 +60,24 @@ const max_speed    = 10;
 const acceleration = 0.2;
 const deceleration = 0.1;
 
+// President
+const PRESIDENT_WIDTH            = 260;
+const PRESIDENT_HEIGHT           = 110;
+const PRESIDENT_SPEED            = 13;        // px per dt — fast!
+const PRESIDENT_SPAWN_INTERVAL   = 1200;      // ~20 s before first/next
+const PRESIDENT_WARNING_DURATION = 50;        // ~0.83 s at 60 fps
+
 // ---- Game state ----
 let player_x, player_speed, obstacles, score, game_over, speed, lives;
 let distance, nitro_available, nitro_active, nitro_timer;
 let nitro_depots, depot_spawn_timer, oil_spots, oil_spawn_timer;
 let obstacle_timer, difficulty_level, obstacle_frequency, level_up_timer;
 let road_lines = [];
+
+// President state
+let president;            // null or { x, y }
+let president_warning;    // countdown frames — >0 means warning is showing
+let president_spawn_timer;
 
 function resetGame() {
   player_x          = WIDTH / 2 - player_width / 2;
@@ -88,6 +100,10 @@ function resetGame() {
   obstacle_frequency = BASE_OBSTACLE_FREQ;
   level_up_timer    = 0;
 
+  president          = null;
+  president_warning  = 0;
+  president_spawn_timer = 0; // first president at PRESIDENT_SPAWN_INTERVAL
+
   road_lines = [];
   for (let i = 0; i < 20; i++) {
     const y = i * (line_height + line_gap);
@@ -101,20 +117,7 @@ resetGame();
 const keys = {};
 document.addEventListener('keydown', e => {
   keys[e.key] = true;
-
-  if ((e.key === 'Escape' || e.key === 'q' || e.key === 'Q') && !game_over) {
-    // no quit in browser — ignore
-  }
-  if ((e.key === 'r' || e.key === 'R') && game_over) {
-    resetGame();
-  }
-  if ((e.key === 'n' || e.key === 'N') && !game_over) {
-    if (nitro_available > 0 && !nitro_active) {
-      nitro_active    = true;
-      nitro_available -= 1;
-      nitro_timer     = NITRO_DURATION;
-    }
-  }
+  if ((e.key === 'r' || e.key === 'R') && game_over) resetGame();
   // Prevent arrow keys scrolling the page
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
 });
@@ -236,6 +239,62 @@ function drawOilSpot(x, y) {
   ctx.fillStyle = '#28190A'; ctx.fill();
 }
 
+function drawPresidentCar(x, y) {
+  const w = PRESIDENT_WIDTH;
+  const h = PRESIDENT_HEIGHT;
+
+  // Massive orange body
+  roundedRect(x, y, w, h, 14, '#FF6400', '#BB3A00', 5);
+
+  // Angry windshield (facing player — headlights at bottom of the car since oncoming)
+  roundedRect(x + 30, y + h - 45, w - 60, 32, 6, '#6ECEFF', '#3A88BB', 2);
+
+  // Angry eyebrow slashes across the windshield
+  ctx.strokeStyle = '#000000'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(x + 35, y + h - 44); ctx.lineTo(x + w/2 - 10, y + h - 36); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + w - 35, y + h - 44); ctx.lineTo(x + w/2 + 10, y + h - 36); ctx.stroke();
+
+  // Headlights (bottom = front since oncoming)
+  roundedRect(x + 12, y + h - 16, 40, 10, 3, '#FFEE44', '#CC9900', 1);
+  roundedRect(x + w - 52, y + h - 16, 40, 10, 3, '#FFEE44', '#CC9900', 1);
+
+  // Taillights (top = rear)
+  roundedRect(x + 12, y + 6, 40, 10, 3, '#FF2222', '#AA0000', 1);
+  roundedRect(x + w - 52, y + 6, 40, 10, 3, '#FF2222', '#AA0000', 1);
+
+  // Stars & stripes accent on the hood (top area)
+  for (let s = 0; s < 5; s++) {
+    ctx.fillStyle = (s % 2 === 0) ? '#CC2200' : '#FFFFFF';
+    ctx.fillRect(x + 30 + s * 14, y + 20, 14, 10);
+  }
+  // A few white stars on a blue patch
+  roundedRect(x + 30, y + 20, 28, 10, 0, '#003399');
+  ctx.fillStyle = '#FFFFFF'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('★ ★ ★', x + 44, y + 30);
+
+  // Wheels (wide car, 6 wheels for drama)
+  const wheelPositions = [
+    [x - 8, y + 15], [x + w, y + 15],
+    [x - 8, y + 45], [x + w, y + 45],
+    [x - 8, y + 75], [x + w, y + 75],
+  ];
+  for (const [wx, wy] of wheelPositions) {
+    roundedRect(wx, wy, 10, 22, 3, WHEEL_TIRE);
+    roundedRect(wx + 1, wy + 4, 8, 14, 2, '#555555');
+  }
+
+  // "MAD ORANGE PRESIDENT" lettering
+  ctx.save();
+  ctx.font = 'bold 18px sans-serif';
+  ctx.fillStyle = '#FFFFFF';
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = 3;
+  ctx.textAlign = 'center';
+  ctx.strokeText('MAD ORANGE PRESIDENT', x + w / 2, y + h / 2 + 6);
+  ctx.fillText('MAD ORANGE PRESIDENT', x + w / 2, y + h / 2 + 6);
+  ctx.restore();
+}
+
 // ---- Helpers ----
 function pickSpawnX(width, margin = 10, attempts = 8) {
   const blocked = obstacles.map(o => o[0])
@@ -275,8 +334,15 @@ function loop(ts) {
     else if (keys['ArrowDown']) player_speed = Math.max(player_speed - acceleration * dt, 0);
     else player_speed = Math.max(player_speed - deceleration * dt, 0);
 
-    if (keys['ArrowLeft']  && player_x > road_x)                         player_x -= 5 * dt;
+    if (keys['ArrowLeft']  && player_x > road_x)                             player_x -= 5 * dt;
     if (keys['ArrowRight'] && player_x < road_x + road_width - player_width) player_x += 5 * dt;
+
+    // Nitro — hold N to keep consuming packs continuously
+    if ((keys['n'] || keys['N']) && nitro_available > 0 && !nitro_active) {
+      nitro_active    = true;
+      nitro_available -= 1;
+      nitro_timer     = NITRO_DURATION;
+    }
 
     distance += (speed + player_speed) * speed_mult * 0.5 * dt;
 
@@ -335,7 +401,42 @@ function loop(ts) {
     }
     if (level_up_timer > 0) level_up_timer -= dt;
 
-    // Collision — player rect
+    // ---- President spawn logic ----
+    if (!president && president_warning <= 0) {
+      president_spawn_timer += dt;
+      if (president_spawn_timer >= PRESIDENT_SPAWN_INTERVAL) {
+        president_spawn_timer = 0;
+        president_warning = PRESIDENT_WARNING_DURATION;
+      }
+    }
+
+    if (president_warning > 0) {
+      president_warning -= dt;
+      if (president_warning <= 0 && !president) {
+        // Spawn him — centered on road, just above screen
+        president = {
+          x: road_x + (road_width - PRESIDENT_WIDTH) / 2,
+          y: -PRESIDENT_HEIGHT
+        };
+      }
+    }
+
+    if (president) {
+      president.y += PRESIDENT_SPEED * dt;
+
+      // Crush all obstacles in his path (no mercy)
+      const px2 = president.x, py2 = president.y, pw2 = PRESIDENT_WIDTH, ph2 = PRESIDENT_HEIGHT;
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        const [ox, oy] = obstacles[i];
+        if (px2 < ox + player_width && px2 + pw2 > ox && py2 < oy + player_height && py2 + ph2 > oy) {
+          obstacles.splice(i, 1);
+        }
+      }
+
+      if (president.y > HEIGHT) president = null;
+    }
+
+    // ---- Collision — player rect ----
     const px = player_x, py = player_y, pw = player_width, ph = player_height;
 
     for (let i = obstacles.length - 1; i >= 0; i--) {
@@ -350,6 +451,16 @@ function loop(ts) {
         }
       }
     }
+
+    // President collision — instant death
+    if (president) {
+      const px2 = president.x, py2 = president.y, pw2 = PRESIDENT_WIDTH, ph2 = PRESIDENT_HEIGHT;
+      if (px < px2 + pw2 && px + pw > px2 && py < py2 + ph2 && py + ph > py2) {
+        lives = 0;
+        game_over = true;
+      }
+    }
+
     for (let i = nitro_depots.length - 1; i >= 0; i--) {
       const [dx, dy] = nitro_depots[i];
       if (px < dx + 40 && px + pw > dx && py < dy + 35 && py + ph > dy) {
@@ -388,6 +499,9 @@ function loop(ts) {
   drawPlayerCar(player_x, player_y, nitro_active);
   for (const [ox, oy, oc] of obstacles) drawObstacleCar(ox, oy, oc);
 
+  // President car (drawn on top of everything)
+  if (president) drawPresidentCar(president.x, president.y);
+
   // HUD — left
   text(`Score: ${score}`,                       20, 38);
   text(`Dist:  ${(distance/1000).toFixed(2)} km`, 20, 68);
@@ -396,7 +510,7 @@ function loop(ts) {
   if (nitro_active) {
     text(`NITRO! ${Math.ceil(nitro_timer / 60)}s  (x${nitro_available} queued)`, 20, 128, '#FFC800');
   } else if (nitro_available > 0) {
-    text(`NITRO x${nitro_available} READY [N]`, 20, 128, NITRO_GREEN);
+    text(`NITRO x${nitro_available} READY [hold N]`, 20, 128, NITRO_GREEN);
   }
 
   // Level-up banner
@@ -410,6 +524,30 @@ function loop(ts) {
     ctx.restore();
   }
 
+  // President warning — flashing red alert
+  if (president_warning > 0) {
+    const flash = Math.sin(president_warning * 0.6) * 0.5 + 0.5;
+    ctx.save();
+    ctx.globalAlpha = 0.4 + flash * 0.6;
+
+    // Dark red banner behind text
+    ctx.fillStyle = '#330000';
+    ctx.fillRect(WIDTH / 2 - 420, HEIGHT / 2 - 60, 840, 90);
+    ctx.strokeStyle = '#FF2200';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(WIDTH / 2 - 420, HEIGHT / 2 - 60, 840, 90);
+
+    ctx.globalAlpha = 0.7 + flash * 0.3;
+    ctx.font = 'bold 48px sans-serif';
+    ctx.fillStyle = '#FF6400';
+    ctx.textAlign = 'center';
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 3;
+    ctx.strokeText('⚠  MAD ORANGE PRESIDENT  ⚠', WIDTH / 2, HEIGHT / 2 - 5);
+    ctx.fillText('⚠  MAD ORANGE PRESIDENT  ⚠', WIDTH / 2, HEIGHT / 2 - 5);
+    ctx.restore();
+  }
+
   // HUD — centre (speed)
   const speed_str = `Speed: ${Math.floor(player_speed * 10)}`;
   text(speed_str, WIDTH / 2, 38, TEXT_COLOR, 22, 'center');
@@ -418,7 +556,7 @@ function loop(ts) {
   text(`Lives: ${lives}`, WIDTH - 20, 38, TEXT_COLOR, 22, 'right');
 
   // Controls hint
-  text('UP/DOWN: speed   LEFT/RIGHT: steer   N: nitro   R: restart',
+  text('UP/DOWN: speed   LEFT/RIGHT: steer   hold N: nitro   R: restart',
        WIDTH / 2, HEIGHT - 16, TEXT_COLOR, 18, 'center');
 
   // Game over overlay
