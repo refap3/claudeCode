@@ -53,6 +53,27 @@ function cloneGrid(g) {
   return g.map(row => row.slice());
 }
 
+function computeCandidates(values) {
+  // For each empty cell return the set of digits not in same row/col/box
+  return Array.from({length: 9}, (_, r) =>
+    Array.from({length: 9}, (_, c) => {
+      if (values[r][c] !== 0) return new Set();
+      const used = new Set();
+      for (let i = 0; i < 9; i++) {
+        used.add(values[r][i]);
+        used.add(values[i][c]);
+      }
+      const br = Math.floor(r / 3) * 3, bc = Math.floor(c / 3) * 3;
+      for (let dr = 0; dr < 3; dr++)
+        for (let dc = 0; dc < 3; dc++)
+          used.add(values[br + dr][bc + dc]);
+      const cands = new Set();
+      for (let d = 1; d <= 9; d++) if (!used.has(d)) cands.add(d);
+      return cands;
+    })
+  );
+}
+
 function key(r, c) { return `${r},${c}`; }
 
 const TIER_NAMES = ['', 'Beginner', 'Intermediate', 'Advanced', 'Expert', 'Master'];
@@ -255,10 +276,17 @@ function renderGrid() {
     };
     conflictSet = state.inputConflicts;
   } else if (state.mode === 'play') {
+    const autoCands = state.showCandidates ? computeCandidates(state.playValues) : null;
     gs = {
       values: state.playValues,
       givens: state.playGivens,
-      candidates: state.playUserCands.map(row => row.map(s => Array.from(s).sort())),
+      candidates: Array.from({length: 9}, (_, r) =>
+        Array.from({length: 9}, (_, c) => {
+          const user = state.playUserCands[r][c];
+          const auto = autoCands ? autoCands[r][c] : new Set();
+          return Array.from(new Set([...user, ...auto])).sort((a, b) => a - b);
+        })
+      ),
     };
     conflictSet = state.playErrors;
   }
