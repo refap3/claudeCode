@@ -108,6 +108,7 @@ ssh pi@$NEWHOST "cd ~/sudokusolver && docker compose up --build -d"
 5. **CANDS** auto-computes all valid candidates for every empty cell and overlays them; your manual marks are always shown regardless
 6. **HINT** fills the correct digit into the selected cell
 7. Wrong digits are highlighted in red
+8. A **stopwatch** runs from the moment you enter play mode — a 🎉 banner shows your time when the puzzle is solved
 
 ### Web keyboard shortcuts
 
@@ -129,7 +130,7 @@ ssh pi@$NEWHOST "cd ~/sudokusolver && docker compose up --build -d"
 
 **Input / Create mode:** `1`–`9` set digit and advance · `0` clear and advance · `Del`/`Backspace` clear in place · Arrows move · cursor wraps to next row after column 9 · `Enter` solve · `Esc` cancel · `Ctrl+Z/Y` undo/redo · `X` clear all
 
-**Play mode:** `1`–`9` fill · `M` mark/pencil mode · `K` clear all marks · `H` hint · `C` auto-candidates · `Esc` exit
+**Play mode:** `1`–`9` fill · `M` mark/pencil mode · `K` clear all marks · `H` hint · `C` auto-candidates · `Esc` exit · stopwatch runs throughout; 🎉 banner on completion
 
 ### Touch / mobile (web)
 
