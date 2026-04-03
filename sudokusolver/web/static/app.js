@@ -313,7 +313,8 @@ function renderGrid() {
 
   // Cell content
   if (gs) {
-    const showCands = state.showCandidates;
+    // In play mode always show candidates (user marks); showCandidates only gates auto-computed ones
+    const showCands = state.showCandidates || state.mode === 'play';
     for (let r = 0; r < 9; r++) {
       for (let c = 0; c < 9; c++) {
         const v = gs.values[r][c];
