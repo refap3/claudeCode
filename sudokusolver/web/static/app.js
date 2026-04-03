@@ -30,6 +30,11 @@ const state = {
   playMarkMode: false,
   playErrors: new Set(),
 
+  // Stopwatch
+  playStartTime: 0,
+  playSolved: false,
+  timerInterval: null,
+
   // Shared
   selected: null,          // [r, c] or null
   highlight: {},           // "r,c" -> 'place'|'elim'|'pattern'|'house'
@@ -857,6 +862,54 @@ function redoEdit() {
   validateEditGrid();
 }
 
+// ── Stopwatch ─────────────────────────────────────────────────────────────────
+const stopwatchEl  = document.getElementById('play-stopwatch');
+const stopwatchTime = document.getElementById('stopwatch-time');
+const solvedDialog  = document.getElementById('solved-dialog');
+const solvedTimeEl  = document.getElementById('solved-time');
+document.getElementById('solved-ok').addEventListener('click', () => solvedDialog.close());
+
+function fmtTime(ms) {
+  const tot = Math.floor(ms / 1000);
+  const m = Math.floor(tot / 60);
+  const s = tot % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function startStopwatch() {
+  clearInterval(state.timerInterval);
+  state.playStartTime = Date.now();
+  state.playSolved = false;
+  stopwatchEl.style.display = '';
+  stopwatchTime.textContent = '0:00';
+  state.timerInterval = setInterval(() => {
+    if (!state.playSolved)
+      stopwatchTime.textContent = fmtTime(Date.now() - state.playStartTime);
+  }, 1000);
+}
+
+function stopStopwatch() {
+  clearInterval(state.timerInterval);
+  state.timerInterval = null;
+  stopwatchEl.style.display = 'none';
+}
+
+function checkPlayComplete() {
+  if (state.playSolved) return;
+  // All cells must be filled and no errors
+  for (let r = 0; r < 9; r++)
+    for (let c = 0; c < 9; c++)
+      if (state.playValues[r][c] === 0) return;
+  if (state.playErrors.size > 0) return;
+  // Solved!
+  state.playSolved = true;
+  clearInterval(state.timerInterval);
+  const elapsed = fmtTime(Date.now() - state.playStartTime);
+  stopwatchTime.textContent = elapsed;
+  solvedTimeEl.textContent = elapsed;
+  solvedDialog.showModal();
+}
+
 // ── Play mode ─────────────────────────────────────────────────────────────────
 async function enterPlayModeFrom(values) {
   stopAutoPlay();
@@ -865,6 +918,7 @@ async function enterPlayModeFrom(values) {
   state.playValues = cloneGrid(values);
   state.playMarkMode = false;
   state.playErrors = new Set();
+  state.playSolved = false;
   state.selected = null;
   state.highlight = {};
   state.playUserCands = Array.from({length: 9}, () =>
@@ -885,11 +939,13 @@ async function enterPlayModeFrom(values) {
   } catch (e) {
     state.playSolution = null;
   }
+  startStopwatch();
   render();
   setStatus('Play mode: fill in digits. H for hint, M for mark mode.');
 }
 
 function exitPlayMode() {
+  stopStopwatch();
   state.mode = 'solve';
   state.selected = null;
   render();
@@ -928,13 +984,33 @@ function playClearMarks() {
 
 function validatePlayBoard() {
   state.playErrors = new Set();
-  if (!state.playSolution) return;
-  for (let r = 0; r < 9; r++)
-    for (let c = 0; c < 9; c++) {
-      const v = state.playValues[r][c];
-      if (v && v !== state.playSolution[r][c])
-        state.playErrors.add(key(r, c));
-    }
+  if (state.playSolution) {
+    for (let r = 0; r < 9; r++)
+      for (let c = 0; c < 9; c++) {
+        const v = state.playValues[r][c];
+        if (v && v !== state.playSolution[r][c])
+          state.playErrors.add(key(r, c));
+      }
+  } else {
+    // No solution available — check basic row/col/box conflicts
+    for (let r = 0; r < 9; r++)
+      for (let c = 0; c < 9; c++) {
+        const v = state.playValues[r][c];
+        if (!v) continue;
+        for (let i = 0; i < 9; i++) {
+          if (i !== c && state.playValues[r][i] === v) state.playErrors.add(key(r, c));
+          if (i !== r && state.playValues[i][c] === v) state.playErrors.add(key(r, c));
+        }
+        const br = Math.floor(r/3)*3, bc = Math.floor(c/3)*3;
+        for (let dr = 0; dr < 3; dr++)
+          for (let dc = 0; dc < 3; dc++) {
+            const rr = br+dr, cc = bc+dc;
+            if ((rr !== r || cc !== c) && state.playValues[rr][cc] === v)
+              state.playErrors.add(key(r, c));
+          }
+      }
+  }
+  checkPlayComplete();
 }
 
 function advanceHint() {

@@ -405,6 +405,16 @@ dialog::backdrop {
 /* ── Upload button area ──────────────────────────────────────────────────── */
 #img-upload-input { display: none; }
 
+/* ── Stopwatch ───────────────────────────────────────────────────────────── */
+#play-stopwatch {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  padding: 2px 0;
+  letter-spacing: 0.03em;
+}
+
 /* ── Number pad (touch only) ─────────────────────────────────────────────── */
 #numpad {
   display: none; /* hidden by default on all devices */

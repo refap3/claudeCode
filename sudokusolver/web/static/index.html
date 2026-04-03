@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sudoku Tutor</title>
-  <link rel="stylesheet" href="/static/style.css?v=13">
+  <link rel="stylesheet" href="/static/style.css?v=14">
 </head>
 <body>
 <div id="app">
@@ -67,6 +67,7 @@
         <div id="timeline-fill" style="width:0%"></div>
         <span id="timeline-label">Step 0 / 0</span>
       </div>
+      <div id="play-stopwatch" style="display:none;">&#x23F1; <span id="stopwatch-time">0:00</span></div>
       <!-- Touch number pad (shown on touch devices in input/play/create modes) -->
       <div id="numpad" class="hidden">
         <button class="numpad-btn" data-digit="1">1</button>
@@ -94,6 +95,16 @@
   <!-- Status bar -->
   <div id="status-bar" id="status-bar">Keyboard: Space/→ next  ←/Bksp prev  A auto  C cands  D dark  H hint  P play  I input  1-9 filter  R reset</div>
 </div>
+
+<!-- Solved banner -->
+<dialog id="solved-dialog">
+  <div style="text-align:center; padding:28px 36px;">
+    <div style="font-size:48px; margin-bottom:8px;">🎉</div>
+    <div style="font-size:22px; font-weight:700; color:var(--ok); margin-bottom:6px;">Puzzle Solved!</div>
+    <div style="font-size:15px; color:var(--text-muted);">Time: <span id="solved-time" style="font-weight:700; color:var(--text);"></span></div>
+    <button class="btn btn-on" id="solved-ok" style="margin-top:20px; min-width:80px;">OK</button>
+  </div>
+</dialog>
 
 <!-- API key dialog -->
 <dialog id="apikey-dialog">
@@ -140,6 +151,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=13"></script>
+<script src="/static/app.js?v=14"></script>
 </body>
 </html>
