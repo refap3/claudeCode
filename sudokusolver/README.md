@@ -23,6 +23,7 @@ The solver uses only logic techniques a human would actually apply — no backtr
 ## Web App (Browser / Docker)
 
 A full-featured browser port of the pygame GUI — same solver, same strategies, same colour coding.
+Works on desktop and **mobile phones** (responsive layout, touch number pad).
 
 ### Quick start (local)
 
@@ -95,6 +96,19 @@ ssh pi@$NEWHOST "cd ~/sudokusolver && docker compose up --build -d"
 | POST | `/api/extract-image` | Multipart image → Claude vision → 9×9 grid |
 | GET | `/api/config` | `{has_anthropic_key, has_generator, has_puzzles}` |
 
+### Playing a puzzle (web)
+
+**To solve step-by-step:** load a puzzle from the **PUZZLE** library → use **NEXT / PREV** to step through. The right panel explains the strategy at each step.
+
+**To play yourself:**
+1. Click **PUZZLE** → pick a puzzle, or click **INPUT** → enter a puzzle → click **PLAY**
+2. Tap/click a cell to select it
+3. Enter a digit (keyboard `1`–`9`, or the on-screen number pad on touch devices)
+4. Use **MARK** to switch to pencil-mark mode — digits become small candidates instead of filling the cell
+5. **CANDS** auto-computes all valid candidates for every empty cell and overlays them; your manual marks are always shown regardless
+6. **HINT** fills the correct digit into the selected cell
+7. Wrong digits are highlighted in red
+
 ### Web keyboard shortcuts
 
 **Solve mode:**
@@ -115,7 +129,15 @@ ssh pi@$NEWHOST "cd ~/sudokusolver && docker compose up --build -d"
 
 **Input / Create mode:** `1`–`9` set digit and advance · `0` clear and advance · `Del`/`Backspace` clear in place · Arrows move · cursor wraps to next row after column 9 · `Enter` solve · `Esc` cancel · `Ctrl+Z/Y` undo/redo · `X` clear all
 
-**Play mode:** `1`–`9` fill · `M` mark mode · `K` clear marks · `H` hint · `C` cands · `Esc` exit
+**Play mode:** `1`–`9` fill · `M` mark/pencil mode · `K` clear all marks · `H` hint · `C` auto-candidates · `Esc` exit
+
+### Touch / mobile (web)
+
+On phones and tablets the layout switches automatically:
+- The grid scales to screen width
+- The toolbar scrolls horizontally
+- A **number pad** (1–9 + ⌫) appears below the grid in Input, Create, and Play modes
+- In Play mode the pad also shows **✎ MARK**, **HINT**, and **CANDS** buttons — no keyboard needed
 
 ### API Key (web)
 
