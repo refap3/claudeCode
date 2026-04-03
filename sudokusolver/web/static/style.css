@@ -139,6 +139,8 @@ body {
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #panel {
@@ -403,9 +405,108 @@ dialog::backdrop {
 /* ── Upload button area ──────────────────────────────────────────────────── */
 #img-upload-input { display: none; }
 
+/* ── Number pad (touch only) ─────────────────────────────────────────────── */
+#numpad {
+  display: none; /* hidden by default on all devices */
+}
+/* Show only on touch/mobile when JS adds .visible */
+@media (hover: none) and (pointer: coarse) {
+  #numpad.visible {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 6px;
+    width: 100%;
+    padding: 6px 0 2px;
+  }
+}
+.numpad-btn {
+  height: 52px;
+  font-size: 22px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--text);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.1s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.numpad-btn:active {
+  background: var(--given-bg);
+}
+.numpad-btn.del {
+  font-size: 18px;
+  background: var(--btn-danger);
+  color: var(--btn-text);
+  border-color: var(--btn-danger);
+}
+.numpad-btn.del:active {
+  background: var(--btn-danger-h);
+}
+.numpad-btn.mark {
+  font-size: 13px;
+  background: var(--btn);
+  color: var(--btn-text);
+  border-color: var(--btn);
+}
+.numpad-btn.mark.on {
+  background: var(--btn-on);
+  border-color: var(--btn-on);
+}
+.numpad-btn.mark:active { opacity: 0.8; }
+.numpad-btn.hint {
+  font-size: 13px;
+  background: var(--btn);
+  color: var(--btn-text);
+  border-color: var(--btn);
+}
+.numpad-btn.hint:active { opacity: 0.8; }
+
 /* ── Responsive ─────────────────────────────────────────────────────────── */
 @media (max-width: 760px) {
-  #main-area { flex-direction: column; overflow-y: auto; }
+  #main-area {
+    flex-direction: column;
+    overflow-y: auto;
+    gap: 8px;
+    padding: 8px;
+  }
   #panel { max-width: 100%; }
-  #timeline-container { width: 100%; max-width: 540px; }
+
+  /* Scrollable single-row toolbar */
+  #toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding: 6px 8px;
+    gap: 5px;
+  }
+  #toolbar::-webkit-scrollbar { display: none; }
+
+  /* Larger touch targets */
+  .btn {
+    min-height: 40px;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+
+  /* Responsive grid */
+  #grid-area {
+    width: 100%;
+    align-items: stretch;
+  }
+  #grid-svg {
+    width: 100%;
+    height: auto;
+  }
+  #timeline-container {
+    width: 100%;
+    max-width: none;
+    height: 28px;
+  }
+
+  /* Hide keyboard-shortcut status bar */
+  #status-bar { display: none; }
+
 }

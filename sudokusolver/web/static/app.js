@@ -564,7 +564,63 @@ function render() {
   renderTimeline();
   renderToolbar();
   renderDigitFilter();
+  renderNumpad();
 }
+
+// ── Number pad ────────────────────────────────────────────────────────────────
+const numpad = document.getElementById('numpad');
+const numpadMark = document.getElementById('numpad-mark');
+const numpadHint = document.getElementById('numpad-hint');
+
+function renderNumpad() {
+  const needsNumpad = state.mode === 'input' || state.mode === 'create' || state.mode === 'play';
+  numpad.classList.toggle('visible', needsNumpad);
+
+  // Show mark/hint only in play mode
+  numpadMark.style.display = state.mode === 'play' ? '' : 'none';
+  numpadHint.style.display = state.mode === 'play' ? '' : 'none';
+  numpadMark.classList.toggle('on', state.playMarkMode);
+}
+
+function handleNumpadDigit(d) {
+  if (state.mode === 'input' || state.mode === 'create') {
+    if (!state.selected) return;
+    const [r, c] = state.selected;
+    if (d === 0) {
+      setEditDigit(r, c, 0);
+    } else {
+      setEditDigit(r, c, d);
+      advanceEditCursor(r, c);
+    }
+  } else if (state.mode === 'play') {
+    if (!state.selected) return;
+    const [r, c] = state.selected;
+    if (d === 0) {
+      playClearCell(r, c);
+    } else if (state.playMarkMode) {
+      playToggleMark(r, c, d);
+    } else {
+      playFillCell(r, c, d);
+      moveSelection(0, 1);
+    }
+  }
+}
+
+// Wire up numpad digit buttons
+numpad.querySelectorAll('.numpad-btn[data-digit]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    handleNumpadDigit(parseInt(btn.dataset.digit));
+  });
+});
+
+// Mark toggle
+numpadMark.addEventListener('click', () => {
+  state.playMarkMode = !state.playMarkMode;
+  renderNumpad();
+});
+
+// Hint
+numpadHint.addEventListener('click', playHint);
 
 // ── Digit filter ──────────────────────────────────────────────────────────────
 function renderDigitFilter() {

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sudoku Tutor</title>
-  <link rel="stylesheet" href="/static/style.css?v=8">
+  <link rel="stylesheet" href="/static/style.css?v=10">
 </head>
 <body>
 <div id="app">
@@ -67,6 +67,21 @@
         <div id="timeline-fill" style="width:0%"></div>
         <span id="timeline-label">Step 0 / 0</span>
       </div>
+      <!-- Touch number pad (shown on touch devices in input/play/create modes) -->
+      <div id="numpad" class="hidden">
+        <button class="numpad-btn" data-digit="1">1</button>
+        <button class="numpad-btn" data-digit="2">2</button>
+        <button class="numpad-btn" data-digit="3">3</button>
+        <button class="numpad-btn" data-digit="4">4</button>
+        <button class="numpad-btn" data-digit="5">5</button>
+        <button class="numpad-btn" data-digit="6">6</button>
+        <button class="numpad-btn" data-digit="7">7</button>
+        <button class="numpad-btn" data-digit="8">8</button>
+        <button class="numpad-btn" data-digit="9">9</button>
+        <button class="numpad-btn del" data-digit="0">&#x232B;</button>
+        <button class="numpad-btn mark" id="numpad-mark">&#x270E; MARK</button>
+        <button class="numpad-btn hint" id="numpad-hint">HINT</button>
+      </div>
     </div>
     <div id="panel">
       <div class="panel-title" id="panel-title">Ready</div>
@@ -124,6 +139,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=8"></script>
+<script src="/static/app.js?v=10"></script>
 </body>
 </html>
