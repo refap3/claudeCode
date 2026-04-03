@@ -569,17 +569,21 @@ function render() {
 
 // ── Number pad ────────────────────────────────────────────────────────────────
 const numpad = document.getElementById('numpad');
-const numpadMark = document.getElementById('numpad-mark');
-const numpadHint = document.getElementById('numpad-hint');
+const numpadMark  = document.getElementById('numpad-mark');
+const numpadHint  = document.getElementById('numpad-hint');
+const numpadCands = document.getElementById('numpad-cands');
 
 function renderNumpad() {
   const needsNumpad = state.mode === 'input' || state.mode === 'create' || state.mode === 'play';
   numpad.classList.toggle('visible', needsNumpad);
 
-  // Show mark/hint only in play mode
-  numpadMark.style.display = state.mode === 'play' ? '' : 'none';
-  numpadHint.style.display = state.mode === 'play' ? '' : 'none';
+  // Show mark/hint/cands only in play mode
+  const inPlay = state.mode === 'play';
+  numpadMark.style.display  = inPlay ? '' : 'none';
+  numpadHint.style.display  = inPlay ? '' : 'none';
+  numpadCands.style.display = inPlay ? '' : 'none';
   numpadMark.classList.toggle('on', state.playMarkMode);
+  numpadCands.classList.toggle('on', state.showCandidates);
 }
 
 function handleNumpadDigit(d) {
@@ -621,6 +625,12 @@ numpadMark.addEventListener('click', () => {
 
 // Hint
 numpadHint.addEventListener('click', playHint);
+
+// Candidates toggle
+numpadCands.addEventListener('click', () => {
+  state.showCandidates = !state.showCandidates;
+  render();
+});
 
 // ── Digit filter ──────────────────────────────────────────────────────────────
 function renderDigitFilter() {

@@ -413,7 +413,7 @@ dialog::backdrop {
 @media (hover: none) and (pointer: coarse) {
   #numpad.visible {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 6px;
     width: 100%;
     padding: 6px 0 2px;
@@ -462,6 +462,17 @@ dialog::backdrop {
   border-color: var(--btn);
 }
 .numpad-btn.hint:active { opacity: 0.8; }
+.numpad-btn.cands {
+  font-size: 13px;
+  background: var(--btn);
+  color: var(--btn-text);
+  border-color: var(--btn);
+}
+.numpad-btn.cands.on {
+  background: var(--btn-on);
+  border-color: var(--btn-on);
+}
+.numpad-btn.cands:active { opacity: 0.8; }
 
 /* ── Responsive ─────────────────────────────────────────────────────────── */
 @media (max-width: 760px) {
