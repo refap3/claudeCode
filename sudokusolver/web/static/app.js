@@ -1356,11 +1356,25 @@ function handlePlayKey(e) {
 }
 
 function playHint() {
-  if (!state.playSolution || !state.selected) return;
-  const [r, c] = state.selected;
-  if (state.playGivens[r][c]) return;
+  if (!state.playSolution) { setStatus('No solution available for hints.'); return; }
+
+  let r, c;
+  if (state.selected && !state.playGivens[state.selected[0]][state.selected[1]]
+      && state.playValues[state.selected[0]][state.selected[1]] === 0) {
+    [r, c] = state.selected;
+  } else {
+    // Auto-pick first empty non-given cell
+    outer: for (let rr = 0; rr < 9; rr++)
+      for (let cc = 0; cc < 9; cc++)
+        if (!state.playGivens[rr][cc] && state.playValues[rr][cc] === 0) {
+          r = rr; c = cc; break outer;
+        }
+  }
+  if (r === undefined) { setStatus('No empty cells left!'); return; }
+
   const d = state.playSolution[r][c];
   if (d) {
+    state.selected = [r, c];
     playFillCell(r, c, d);
     setStatus(`Hint: R${r+1}C${c+1} = ${d}`);
   }
