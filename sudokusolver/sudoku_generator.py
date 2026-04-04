@@ -17,6 +17,7 @@ Difficulty tiers mirror those in sudoku_tutor.py:
 """
 
 import random
+import time
 from copy import deepcopy
 from typing import Optional
 
@@ -36,12 +37,15 @@ STRATEGY_TIER = {
 
 # Target empty-cell ranges per tier.  These are tuned empirically and act as
 # a soft guide; the uniqueness constraint is always the hard stop.
+# Note: maintaining a unique solution caps out at ~55-59 holes in practice,
+# so tiers 2-4 share a similar range; difficulty comes from the strategy
+# needed, not from hole count alone.
 _EMPTY_RANGE = {
-    0: (25, 36),   # Really Easy: very few holes, all naked/full-house solvable
-    1: (45, 55),
-    2: (55, 62),
-    3: (60, 64),
-    4: (64, 70),
+    0: (25, 36),   # Really Easy: few holes, Full House / Naked Single only
+    1: (35, 50),
+    2: (48, 57),
+    3: (48, 57),
+    4: (48, 57),
 }
 
 # Strategy names that qualify as tier-0 (really easy)
@@ -104,43 +108,93 @@ def generate_solution(seed: int | None = None) -> list[list[int]]:
 # Unique-Solution Check
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Precomputed peer indices for each cell (flat index 0-80)
+_PEERS: list[list[int]] = []
+def _build_peers() -> None:
+    for i in range(81):
+        r, c = divmod(i, 9)
+        ps: set[int] = set()
+        ps.update(r * 9 + cc for cc in range(9))
+        ps.update(rr * 9 + c for rr in range(9))
+        br, bc = (r // 3) * 3, (c // 3) * 3
+        ps.update((br + dr) * 9 + (bc + dc) for dr in range(3) for dc in range(3))
+        ps.discard(i)
+        _PEERS.append(sorted(ps))
+_build_peers()
+
+_ALL_BITS = (1 << 9) - 1  # bits 0-8 = digits 1-9
+
+
 def _has_unique_solution(grid: list[list[int]]) -> bool:
     """Return True iff the puzzle has exactly one solution.
 
-    Uses a lightweight backtracking solver that stops as soon as a second
-    solution is discovered, keeping the check fast even for hard puzzles.
+    Uses constraint propagation (naked-single chain elimination) + MRV
+    branching.  Works on a flat 81-element bitset array for cache efficiency.
+    Each bit i in cands[pos] represents digit (i+1) being possible.
     """
-    # Work on a mutable copy
-    work = [row[:] for row in grid]
-    count = [0]  # mutable counter accessible from nested function
+    # All cells start with all 9 digits possible
+    cands = [_ALL_BITS] * 81
+    count = [0]
 
-    def _candidates(r: int, c: int) -> list[int]:
-        used = set()
-        used.update(work[r])
-        used.update(work[rr][c] for rr in range(9))
-        br, bc = (r // 3) * 3, (c // 3) * 3
-        for dr in range(3):
-            for dc in range(3):
-                used.add(work[br + dr][bc + dc])
-        return [d for d in range(1, 10) if d not in used]
+    def _eliminate(state: list[int], pos: int, bit: int) -> bool:
+        """Remove digit (bit) from cell pos, chaining naked-single propagation."""
+        if not (state[pos] & bit):
+            return True  # already gone
+        state[pos] ^= bit
+        n = bin(state[pos]).count('1')
+        if n == 0:
+            return False  # contradiction
+        if n == 1:
+            # Naked single — eliminate this digit from all peers
+            only = state[pos]
+            for peer in _PEERS[pos]:
+                if not _eliminate(state, peer, only):
+                    return False
+        return True
 
-    def _solve() -> bool:
-        """Return True to signal early exit (second solution found)."""
-        # Find the first empty cell (simple left-to-right, top-to-bottom scan)
-        for pos in range(81):
-            r, c = divmod(pos, 9)
-            if work[r][c] == 0:
-                for d in _candidates(r, c):
-                    work[r][c] = d
-                    if _solve():
-                        return True
-                    work[r][c] = 0
-                return False  # dead end
-        # All cells filled — one more solution found
-        count[0] += 1
-        return count[0] >= 2  # True stops recursion early
+    def _assign(state: list[int], pos: int, bit: int) -> bool:
+        """Fix pos to digit (bit) by eliminating all other candidates."""
+        other = state[pos] & ~bit
+        b = other
+        while b:
+            lsb = b & -b
+            b &= b - 1
+            if not _eliminate(state, pos, lsb):
+                return False
+        return True
 
-    _solve()
+    def _solve(state: list[int]) -> bool:
+        # MRV: find unfixed cell with fewest candidates
+        best_pos = -1
+        best_n = 10
+        for i in range(81):
+            n = bin(state[i]).count('1')
+            if n > 1 and n < best_n:
+                best_pos, best_n = i, n
+                if n == 2:
+                    break
+        if best_pos == -1:
+            count[0] += 1
+            return count[0] >= 2
+
+        b = state[best_pos]
+        while b:
+            lsb = b & -b
+            b &= b - 1
+            snap = state[:]
+            if _assign(snap, best_pos, lsb) and _solve(snap):
+                return True
+        return False
+
+    # Assign all given digits, propagating constraints
+    for pos in range(81):
+        r, c = divmod(pos, 9)
+        d = grid[r][c]
+        if d:
+            if not _assign(cands, pos, 1 << (d - 1)):
+                return False  # invalid puzzle
+
+    _solve(cands)
     return count[0] == 1
 
 
@@ -210,8 +264,9 @@ def _is_tier0(values: list[list[int]]) -> bool:
 
 def generate_puzzle(
     target_tier: int = 2,
-    max_attempts: int = 100,
+    max_attempts: int = 200,
     seed: int | None = None,
+    time_limit_s: float = 12.0,
 ) -> Optional[list[list[int]]]:
     """Generate a Sudoku puzzle at the requested difficulty tier.
 
@@ -228,7 +283,8 @@ def generate_puzzle(
     5. Rate the resulting puzzle.  Accept it when the rated tier is within
        ±1 of the target, or when target_tier >= 4 and the puzzle needs brute
        force (rated 0).
-    6. Retry up to *max_attempts* times if no acceptable puzzle is found.
+    6. Retry until *max_attempts* exhausted or *time_limit_s* elapsed.
+       Returns the closest-match puzzle found so far if time runs out.
 
     Parameters
     ----------
@@ -236,10 +292,13 @@ def generate_puzzle(
         Desired difficulty, 0–4.  Tier 0 produces really-easy puzzles
         solvable by Full House and Naked Single alone.
     max_attempts:
-        Maximum number of generation attempts before giving up.
+        Maximum number of generation attempts.
     seed:
         Optional RNG seed.  Each attempt uses a derived seed so results are
         reproducible while still varying across attempts.
+    time_limit_s:
+        Wall-clock seconds before the function returns whatever best candidate
+        it has found so far (or None if nothing viable was produced).
 
     Returns
     -------
@@ -247,8 +306,14 @@ def generate_puzzle(
     """
     rng = random.Random(seed)
     empty_min, empty_max = _EMPTY_RANGE.get(target_tier, (45, 55))
+    deadline = time.monotonic() + time_limit_s
+    best_candidate: Optional[list[list[int]]] = None
+    best_distance = 999
 
     for attempt in range(max_attempts):
+        if time.monotonic() >= deadline:
+            break
+
         # Derive a per-attempt seed so each attempt explores a different space
         attempt_seed = rng.randint(0, 2**31 - 1)
         solution = generate_solution(seed=attempt_seed)
@@ -263,6 +328,8 @@ def generate_puzzle(
 
         empty_count = 0
         for pos in cells:
+            if time.monotonic() >= deadline:
+                break
             r, c = divmod(pos, 9)
             saved = puzzle[r][c]
             puzzle[r][c] = 0
@@ -281,14 +348,13 @@ def generate_puzzle(
 
         # Rate the puzzle
         if target_tier == 0:
-            # Tier-0: must be solvable by Full House + Naked Single only
             acceptable = _is_tier0(puzzle)
+            tier = 0 if acceptable else 1
         else:
             tier = _rate_difficulty(puzzle)
             # Accept criteria:
             #   - Exact tier match, or within ±1
-            #   - For tier-4 target: also accept unsolvable-by-strategies (tier==0),
-            #     which means the puzzle genuinely needs expert techniques or guessing
+            #   - For tier-4 target: also accept unsolvable-by-strategies (tier==0)
             acceptable = (
                 abs(tier - target_tier) <= 1
                 or (target_tier >= 4 and tier == 0)
@@ -297,8 +363,14 @@ def generate_puzzle(
         if acceptable:
             return puzzle
 
-    # All attempts exhausted
-    return None
+        # Keep the closest-rated candidate in case we hit the time limit
+        distance = abs(tier - target_tier)
+        if distance < best_distance:
+            best_distance = distance
+            best_candidate = [row[:] for row in puzzle]
+
+    # Time/attempts exhausted — return best candidate found (may be off by a tier)
+    return best_candidate
 
 
 # ─────────────────────────────────────────────────────────────────────────────
