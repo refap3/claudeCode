@@ -420,7 +420,7 @@ dialog::backdrop {
   display: none; /* hidden by default on all devices */
 }
 /* Show only on touch/mobile when JS adds .visible */
-@media (hover: none) and (pointer: coarse) {
+@media (max-width: 760px), (hover: none) and (pointer: coarse) {
   #numpad.visible {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
