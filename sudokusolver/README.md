@@ -92,7 +92,7 @@ ssh pi@$NEWHOST "cd ~/sudokusolver && docker compose up --build -d"
 | POST | `/api/brute-force` | Backtracking solve → solution + iteration count |
 | GET | `/api/puzzles` | List all 30 built-in puzzles |
 | GET | `/api/puzzles/{id}` | Single puzzle by index |
-| POST | `/api/generate` | Generate puzzle `{"tier": 0-4}` |
+| POST | `/api/generate` | Generate puzzle `{"tier": 0-4}` — all tiers complete in < 1s |
 | POST | `/api/extract-image` | Multipart image → Claude vision → 9×9 grid |
 | GET | `/api/config` | `{has_anthropic_key, has_generator, has_puzzles}` |
 

@@ -176,8 +176,18 @@
 
 ---
 
+## 11. Puzzle Generator
+
+- [ ] CREATE → generate tier 0 completes quickly (< 1s)
+- [ ] CREATE → generate tier 3 completes quickly (< 1s)
+- [ ] CREATE → generate tier 4 completes quickly (< 1s)
+- [ ] Generated puzzle loads into the grid correctly
+- [ ] Solver can solve a generated puzzle (SOLVE button works)
+
+---
+
 ## Known Limitations / Out of Scope
 
 - Keyboard shortcuts are not tested on mobile (by design — numpad replaces them)
 - Paste-from-clipboard image import may not work on all mobile browsers
-- The puzzle generator (CREATE → generate tier) requires server-side support
+- Generated puzzle difficulty may be ±1 tier from the requested tier (by design)
