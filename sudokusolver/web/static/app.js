@@ -26,7 +26,8 @@ const state = {
   playValues: emptyGrid(),
   playGivens: emptyGrid(),
   playSolution: null,
-  playUserCands: [],       // [9][9] Set<number>
+  playUserCands: [],       // [9][9] Set<number> — user-added marks
+  playExcludedCands: [],   // [9][9] Set<number> — digits hidden from auto-candidates
   playMarkMode: false,
   playErrors: new Set(),
 
@@ -288,8 +289,12 @@ function renderGrid() {
       candidates: Array.from({length: 9}, (_, r) =>
         Array.from({length: 9}, (_, c) => {
           const user = state.playUserCands[r][c];
+          const excl = state.playExcludedCands[r][c];
           const auto = autoCands ? autoCands[r][c] : new Set();
-          return Array.from(new Set([...user, ...auto])).sort((a, b) => a - b);
+          // auto-cands minus exclusions, then union with user marks
+          const merged = new Set([...user]);
+          for (const d of auto) if (!excl.has(d)) merged.add(d);
+          return Array.from(merged).sort((a, b) => a - b);
         })
       ),
     };
@@ -924,6 +929,9 @@ async function enterPlayModeFrom(values) {
   state.playUserCands = Array.from({length: 9}, () =>
     Array.from({length: 9}, () => new Set())
   );
+  state.playExcludedCands = Array.from({length: 9}, () =>
+    Array.from({length: 9}, () => new Set())
+  );
 
   // Pre-solve to get solution for hints
   try {
@@ -955,7 +963,8 @@ function exitPlayMode() {
 function playFillCell(r, c, d) {
   if (state.playGivens[r][c]) return;
   state.playValues[r][c] = d;
-  // Validate
+  state.playUserCands[r][c] = new Set();
+  state.playExcludedCands[r][c] = new Set();
   validatePlayBoard();
   render();
 }
@@ -964,14 +973,29 @@ function playClearCell(r, c) {
   if (state.playGivens[r][c]) return;
   state.playValues[r][c] = 0;
   state.playUserCands[r][c] = new Set();
+  state.playExcludedCands[r][c] = new Set();
   state.playErrors.delete(key(r, c));
   render();
 }
 
 function playToggleMark(r, c, d) {
   if (state.playGivens[r][c] || state.playValues[r][c]) return;
-  const s = state.playUserCands[r][c];
-  if (s.has(d)) s.delete(d); else s.add(d);
+  const user = state.playUserCands[r][c];
+  const excl = state.playExcludedCands[r][c];
+  // Compute what's currently visible for this digit
+  const autoCands = state.showCandidates ? computeCandidates(state.playValues) : null;
+  const inAuto = autoCands && autoCands[r][c].has(d) && !excl.has(d);
+  const visible = user.has(d) || inAuto;
+
+  if (visible) {
+    // Hide it: remove from user marks and/or add to exclusions
+    user.delete(d);
+    if (autoCands && autoCands[r][c].has(d)) excl.add(d);
+  } else {
+    // Show it: add to user marks and remove any exclusion
+    user.add(d);
+    excl.delete(d);
+  }
   render();
 }
 

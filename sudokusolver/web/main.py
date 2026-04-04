@@ -111,7 +111,7 @@ async def api_generate(payload: GeneratePayload):
     if not HAS_GENERATOR:
         raise HTTPException(status_code=501, detail="Generator not available")
     def _run():
-        return generate_puzzle(tier=payload.tier)
+        return generate_puzzle(target_tier=payload.tier)
     values = await asyncio.to_thread(_run)
     return {"values": values}
 
