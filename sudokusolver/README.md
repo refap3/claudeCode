@@ -106,7 +106,7 @@ ssh pi@$NEWHOST "cd ~/sudokusolver && docker compose up --build -d"
 3. Enter a digit (keyboard `1`–`9`, or the on-screen number pad on touch devices)
 4. Use **MARK** to switch to pencil-mark mode — digits become small candidates instead of filling the cell
 5. **CANDS** auto-computes all valid candidates for every empty cell and overlays them; your manual marks are always shown regardless
-6. **HINT** fills the correct digit into the selected cell
+6. **HINT** fills the correct digit into the selected (or first available) cell — works even when no cell is selected
 7. Wrong digits are highlighted in red
 8. A **stopwatch** runs from the moment you enter play mode — a 🎉 banner shows your time when the puzzle is solved
 
@@ -139,6 +139,9 @@ On phones and tablets the layout switches automatically:
 - The toolbar scrolls horizontally
 - A **number pad** (1–9 + ⌫) appears below the grid in Input, Create, and Play modes
 - In Play mode the pad also shows **✎ MARK**, **HINT**, and **CANDS** buttons — no keyboard needed
+- A **digit filter strip** (1–9) sits below the numpad; tap a digit to highlight all matching cells on the board
+- Tapping a numpad digit when no cell is selected toggles the filter for that digit (same as the filter strip)
+- The active filter digit is indicated by an underline on its numpad button
 
 ### API Key (web)
 

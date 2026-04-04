@@ -73,6 +73,11 @@
 - [ ] CANDS off: manual marks still visible
 - [ ] CANDS on: auto-computed candidates shown alongside manual marks
 
+### 2.8 Play mode — HINT
+- [ ] HINT fills correct digit into the selected cell
+- [ ] HINT with no cell selected auto-fills the first available empty cell
+- [ ] Status bar (or panel) shows `Hint: R#C# = #` after each hint
+
 ### 2.6 Play mode — stopwatch & completion
 - [ ] Stopwatch appears below timeline immediately on entering play mode
 - [ ] Stopwatch counts up in M:SS format
@@ -132,9 +137,22 @@
 
 ---
 
-## 7. Desktop Regression (no mobile changes should break desktop)
+## 7. Digit Filter Bar (mobile)
+
+- [ ] Digit filter row is **not visible** in the toolbar on mobile (≤760px)
+- [ ] A full-width digit filter strip (1–9) appears below the numpad in grid-area
+- [ ] Tapping a filter button highlights all matching cells; tapping again clears the filter
+- [ ] Numpad digit button matching the active filter shows a bottom-border underline indicator
+- [ ] Tapping a numpad digit with **no cell selected** toggles the filter for that digit
+- [ ] Tapping a numpad digit with a cell selected enters the digit as normal (filter not affected)
+
+---
+
+## 8. Desktop Regression (no mobile changes should break desktop)
 
 - [ ] SVG remains 540×540 on desktop
+- [ ] Digit filter row visible in toolbar on desktop (unchanged)
+- [ ] Mobile digit filter strip hidden on desktop
 - [ ] Keyboard shortcuts still work (Space, arrows, A, C, D, H, P, I, 1–9, R)
 - [ ] Numpad is hidden on desktop (non-touch) in all modes
 - [ ] Status bar visible on desktop
@@ -142,7 +160,7 @@
 
 ---
 
-## 8. Orientation & Resize
+## 9. Orientation & Resize
 
 - [ ] Rotating phone portrait→landscape: grid resizes without reload
 - [ ] Grid layout adapts (landscape may show panel beside grid if width >760px)
@@ -150,7 +168,7 @@
 
 ---
 
-## 9. Image Import (if API key available)
+## 10. Image Import (if API key available)
 
 - [ ] IMAGE button is tappable on mobile
 - [ ] File picker opens (camera or photo library on iOS/Android)
