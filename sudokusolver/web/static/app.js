@@ -623,9 +623,22 @@ function renderNumpad() {
   numpadCands.style.display = inPlay ? '' : 'none';
   numpadMark.classList.toggle('on', state.playMarkMode);
   numpadCands.classList.toggle('on', state.showCandidates);
+
+  // Highlight the numpad digit button matching the active filter
+  numpad.querySelectorAll('.numpad-btn[data-digit]').forEach(btn => {
+    const d = parseInt(btn.dataset.digit);
+    btn.classList.toggle('filter-on', d > 0 && d === state.filterDigit);
+  });
 }
 
 function handleNumpadDigit(d) {
+  // Digit 1-9 with no cell selected → toggle filter for that digit
+  if (d > 0 && !state.selected) {
+    state.filterDigit = state.filterDigit === d ? 0 : d;
+    render();
+    return;
+  }
+
   if (state.mode === 'input' || state.mode === 'create') {
     if (!state.selected) return;
     const [r, c] = state.selected;
@@ -673,18 +686,20 @@ numpadCands.addEventListener('click', () => {
 
 // ── Digit filter ──────────────────────────────────────────────────────────────
 function renderDigitFilter() {
-  const row = document.getElementById('digit-filter-row');
-  row.innerHTML = '';
-  for (let d = 1; d <= 9; d++) {
-    const btn = document.createElement('button');
-    btn.className = 'digit-filter-btn' + (state.filterDigit === d ? ' active' : '');
-    btn.textContent = d;
-    btn.title = `Filter digit ${d} (press ${d})`;
-    btn.addEventListener('click', () => {
-      state.filterDigit = state.filterDigit === d ? 0 : d;
-      render();
-    });
-    row.appendChild(btn);
+  for (const rowId of ['digit-filter-row', 'digit-filter-row-mobile']) {
+    const row = document.getElementById(rowId);
+    row.innerHTML = '';
+    for (let d = 1; d <= 9; d++) {
+      const btn = document.createElement('button');
+      btn.className = 'digit-filter-btn' + (state.filterDigit === d ? ' active' : '');
+      btn.textContent = d;
+      btn.title = `Filter digit ${d} (press ${d})`;
+      btn.addEventListener('click', () => {
+        state.filterDigit = state.filterDigit === d ? 0 : d;
+        render();
+      });
+      row.appendChild(btn);
+    }
   }
 }
 
